@@ -1,0 +1,66 @@
+flowchart TD
+    A[Launch ListFlick] --> B{Authenticated?}
+
+    B -->|No| C[Sign In / Create Account]
+    C --> D[Home]
+    B -->|Yes| D
+
+    D --> E[Take Photos / Choose from Library]
+    D --> I[Inventory]
+    D --> S[Settings]
+
+    %% First-time AI configuration
+    S --> P{AI provider selected?}
+
+    P -->|No| P1[Choose AI Provider]
+    P1 --> P2{Gemini or Groq}
+    P2 -->|Gemini| P3[Add Gemini API Key]
+    P2 -->|Groq| P4[Add Groq API Key]
+
+    P3 --> S
+    P4 --> S
+
+    P -->|Yes| PK{Selected provider key configured?}
+    PK -->|No| P5[Add Selected Provider API Key]
+    P5 --> S
+    PK -->|Yes| S
+
+    %% Listing creation
+    E --> K{AI configured?}
+
+    K -->|No provider selected| K1[API Key Required]
+    K1 -->|Open Settings| S
+
+    K -->|Provider selected but key missing| K2[Provider API Key Required]
+    K2 -->|Add API Key| P5
+
+    K -->|Ready| F[Analyze Photos]
+    F --> G[Processing]
+    G --> H[Listing Preview]
+
+    %% Review workspace
+    H --> J[Edit Listing]
+    J --> H
+
+    H --> M[Manage Photos]
+    M --> H
+
+    H --> N[Improve with AI]
+    N --> H
+
+    H --> O[Save to Inventory]
+    O --> I
+
+    %% Saved listing flow
+    I --> L[View Saved Listing]
+
+    L --> J2[Edit Listing]
+    J2 --> L
+
+    L --> M2[Manage Photos]
+    M2 --> L
+
+    L --> Q[Save Photos to Device]
+    L --> R[Copy Listing Text / Share to Chat]
+
+    L --> T[Delete / Recently Deleted]

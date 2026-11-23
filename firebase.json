@@ -1,0 +1,11 @@
+{
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "ListFlick",
+        "supportEmail": "REPLACE_WITH_YOUR_SUPPORT_EMAIL"
+      }
+    }
+  }
+}

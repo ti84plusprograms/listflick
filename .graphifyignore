@@ -1,0 +1,18 @@
+# Generated dependency trees and local environments
+.graphify-venv/
+backend/.venv/
+node_modules/
+mobile/node_modules/
+mobile/ios/Pods/
+mobile/ios/build/
+mobile/android/.gradle/
+mobile/android/app/build/
+__pycache__/
+
+# Generated application output and local data
+.expo/
+dist/
+backend/uploads/
+graphify-out/
+graphify-out/cache/
+*.pyc

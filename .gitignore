@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.graphify-venv/
+.env
+backend/.env
+mobile/.env
+mobile/.metrics/
+backend/uploads/
+backend/.e2e/
+backend/data.db
+backend/service-account.json
+service-account*.json
+.firebaserc
+mobile/config/google-services.json
+mobile/config/GoogleService-Info.plist
+mobile/android/app/google-services.json
+mobile/ios/ListingAssistant/GoogleService-Info.plist
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+mobile/.env
+
+# OS
+.DS_Store
+
+# Local marketplace research inputs
+context/marketplace_screenshots/*
+!context/marketplace_screenshots/.gitkeep
+
+# Graphify (generated locally; embeds absolute local paths)
+.codex/
+graphify-out/
+
+# Local AI agent skills
+.agent/skills/
+.agents/skills/
+skills-lock.json
+
+# Codex feature runner output
+codex-results/*.md
+!codex-results/.gitkeep
+
+# Internal planning and future designs
+docs/future_plans/
+docs/AI_INSIGHTS_IMPLEMENTATION_PLAN.md
+
+# Internal archives, automation prompts, and research context
+docs/archive/
+
+# Internal automation runner and internal lifecycle/readiness docs
+scripts/run-codex-features.sh
+docs/reference/plan-lifecycle.md
+docs/reference/public-repo-readiness.md

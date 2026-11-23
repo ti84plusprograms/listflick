@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: listing-assistant-api
+    env: docker
+    region: oregon
+    plan: free
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: AI_PROVIDER
+        value: groq
+      - key: ALLOW_SERVER_AI_KEY_FALLBACK
+        value: false
+      - key: GROQ_VISION_MODEL
+        value: qwen/qwen3.8-27b
+      - key: GROQ_VISION_REASONING_EFFORT
+        value: none
+      - key: ANALYSIS_LEASE_SECONDS
+        value: 300
+      - key: ANALYSIS_MAX_ATTEMPTS
+        value: 3
+      - key: PENDING_ITEM_RETENTION_HOURS
+        value: 168
+      - key: NOTION_API_KEY
+        sync: false
+      - key: NOTION_DATABASE_ID
+        sync: false
+      - key: NOTION_CREATE_ENTRIES
+        sync: false
+      - key: NOTION_ALLOW_CLIENT_OVERRIDE
+        sync: false
+      - key: NOTION_SYNC_LEASE_SECONDS
+        value: 300
+      - key: CORS_ORIGINS
+        sync: false

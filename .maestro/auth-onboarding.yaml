@@ -1,0 +1,142 @@
+appId: com.listingassistant.app
+name: Complete authentication and onboarding user journey
+tags:
+  - local
+  - golden-path
+---
+- stopApp
+- launchApp:
+    clearState: false
+    permissions:
+      all: allow
+
+- runFlow:
+    when:
+      visible: "Not Now"
+    commands:
+      - tapOn: "Not Now"
+
+# Ensure clean signed-out starting state: if starting on home or settings, sign out first
+- runFlow:
+    when:
+      visible:
+        id: "home-screen"
+    commands:
+      - tapOn: "Settings, tab, .*"
+      - assertVisible:
+          id: "settings-screen"
+      - scrollUntilVisible:
+          element:
+            id: "settings-sign-out-button"
+          direction: DOWN
+      - tapOn:
+          id: "settings-sign-out-button"
+      - tapOn:
+          text: "^Sign Out$"
+          index: 1
+      - waitForAnimationToEnd
+
+- runFlow:
+    when:
+      visible:
+        id: "settings-screen"
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "settings-sign-out-button"
+          direction: DOWN
+      - tapOn:
+          id: "settings-sign-out-button"
+      - tapOn:
+          text: "^Sign Out$"
+          index: 1
+      - waitForAnimationToEnd
+
+# 1. Land on Login/Welcome screen
+- extendedWaitUntil:
+    visible:
+      id: "login-screen"
+    timeout: 10000
+- assertVisible:
+    id: "login-screen"
+- assertVisible: "Welcome to.*"
+- assertVisible:
+    id: "auth-submit-button"
+- assertVisible: "^Sign In$"
+
+# 2. Toggle to Sign Up mode
+- tapOn:
+    id: "auth-toggle-mode-button"
+- assertVisible: "^Create Account$"
+
+# 3. Form validation: empty submit triggers error message
+- tapOn:
+    id: "auth-submit-button"
+- assertVisible:
+    id: "auth-error-message"
+- assertVisible: "Please enter email and password"
+
+# 4. Fill in new account credentials
+- tapOn:
+    id: "auth-email-input"
+- inputText: "onboarding-test@listflick.test"
+- tapOn:
+    id: "auth-password-input"
+- inputText: "password123"
+- tapOn: "Welcome to.*"
+
+# 5. Submit account creation
+- tapOn:
+    id: "auth-submit-button"
+
+# Handle potential iOS system Save Password prompt
+- runFlow:
+    when:
+      visible: "Not Now"
+    commands:
+      - tapOn: "Not Now"
+
+# 6. Verify transition to Home screen
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 10000
+- runFlow:
+    when:
+      visible: "Not Now"
+    commands:
+      - tapOn: "Not Now"
+- assertVisible: "Sell something today"
+- extendedWaitUntil:
+    visible:
+      id: "home-data-ready"
+    timeout: 10000
+- waitForAnimationToEnd
+
+# 7. Navigate to Settings and verify account identity
+- tapOn: "Settings, tab, .*"
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 10000
+- assertVisible: ".*onboarding-test@listflick\\.test.*"
+
+# 8. Cleanly sign out and verify return to Login screen
+- scrollUntilVisible:
+    element:
+      id: "settings-sign-out-button"
+    direction: DOWN
+- tapOn:
+    id: "settings-sign-out-button"
+- assertVisible: "Are you sure you want to sign out?"
+- tapOn:
+    text: "^Sign Out$"
+    index: 1
+- extendedWaitUntil:
+    visible:
+      id: "login-screen"
+    timeout: 10000
+- assertVisible:
+    id: "login-screen"
+- assertVisible:
+    id: "auth-submit-button"

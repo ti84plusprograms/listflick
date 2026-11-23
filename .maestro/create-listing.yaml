@@ -1,0 +1,176 @@
+appId: com.listingassistant.app
+name: Create and save a deterministic listing
+tags:
+  - local
+  - golden-path
+---
+- stopApp
+- launchApp:
+    clearState: false
+    permissions:
+      all: allow
+
+- runFlow: helpers/ensure-authenticated.yaml
+
+# The simulator keeps its authenticated E2E account. Remove only prior copies
+# of this fixture listing before exercising the user flow again.
+- assertVisible:
+    id: home-screen
+- extendedWaitUntil:
+    visible:
+      id: home-data-ready
+    timeout: 10000
+
+- tapOn: "Inventory, tab, .*"
+- assertVisible:
+    id: inventory-screen
+- repeat:
+    times: 3
+    while:
+      visible: "Open Vintage Canon Camera listing.*"
+    commands:
+      - tapOn: "^Remove Vintage Canon Camera from inventory$"
+      - tapOn: "Remove"
+      - waitForAnimationToEnd
+- runFlow:
+    when:
+      visible:
+        id: inventory-recently-deleted
+    commands:
+      - tapOn:
+          id: inventory-recently-deleted
+      - assertVisible:
+          id: recently-deleted-screen
+      - repeat:
+          times: 3
+          while:
+            visible: "Vintage Canon Camera"
+          commands:
+            - tapOn: "Permanently delete Vintage Canon Camera"
+            - tapOn:
+                text: "^Delete Permanently$"
+                index: 1
+            - waitForAnimationToEnd
+      - assertNotVisible: "Vintage Canon Camera"
+      - tapOn:
+          id: recently-deleted-back
+- tapOn: "Home, tab, .*"
+- assertVisible:
+    id: home-screen
+- extendedWaitUntil:
+    visible:
+      id: home-data-ready
+    timeout: 10000
+
+# A failed prior run can leave this dedicated E2E account with a resumable
+# fixture draft. Discard it through the normal product UI before starting.
+- runFlow:
+    when:
+      visible: ".*Resume listing.*"
+    commands:
+      - tapOn: ".*Resume listing.*"
+      - extendedWaitUntil:
+          visible:
+            id: review-screen
+          timeout: 15000
+      - tapOn:
+          id: review-more-actions
+      - tapOn:
+          id: review-discard-listing
+      - tapOn: "^Discard$"
+      - extendedWaitUntil:
+          visible:
+            id: home-screen
+          timeout: 10000
+      - extendedWaitUntil:
+          visible:
+            id: home-data-ready
+          timeout: 10000
+- assertVisible: "Sell something today"
+- assertNotVisible: ".*Resume listing.*"
+
+# Use the normal product UI and native photo picker. The helper contains the
+# platform-specific system selectors; app interactions remain ID/text based.
+- tapOn:
+    id: home-choose-from-library
+- runFlow: helpers/pick-first-photo.yaml
+- assertVisible:
+    id: selected-photo-count
+    text: "1 selected photo"
+- tapOn:
+    id: camera-next
+    waitToSettleTimeoutMs: 500
+
+- assertVisible:
+    id: processing-screen
+- assertVisible: "You can return home and resume this listing later."
+- extendedWaitUntil:
+    visible:
+      id: review-screen
+    timeout: 15000
+
+- assertVisible: "Listing Preview"
+- assertVisible:
+    id: review-listing-title
+    text: "Vintage Canon Camera"
+- assertVisible:
+    id: review-listing-price
+    text: "\\$125"
+- assertVisible:
+    id: review-listing-description
+    text: "A deterministic test listing description."
+
+# Edit one structured field, then verify it on both Review and the saved item.
+- tapOn:
+    id: review-edit-listing
+- assertVisible:
+    id: edit-listing-screen
+- tapOn:
+    id: edit-listing-price
+- eraseText
+- inputText: "120"
+- tapOn:
+    id: edit-listing-save
+- assertVisible:
+    id: review-listing-price
+    text: "\\$120"
+
+- tapOn:
+    id: review-save-to-inventory
+- assertVisible: "Saved"
+- assertVisible: "Listing saved to your inventory.*"
+- tapOn: "OK"
+- extendedWaitUntil:
+    visible:
+      id: inventory-screen
+    timeout: 10000
+- assertVisible: "Open Vintage Canon Camera listing, \\$120, Ready to list"
+
+- tapOn: "Open Vintage Canon Camera listing, \\$120, Ready to list"
+- assertVisible:
+    id: review-screen
+- assertVisible:
+    id: review-listing-price
+    text: "\\$120"
+- tapOn:
+    id: review-back
+- assertVisible:
+    id: inventory-screen
+
+# Successful runs leave neither a local listing nor a backend item/image.
+- tapOn: "^Remove Vintage Canon Camera from inventory$"
+- tapOn: "Remove"
+- assertNotVisible: "Open Vintage Canon Camera listing.*"
+- tapOn:
+    id: inventory-recently-deleted
+- assertVisible:
+    id: recently-deleted-screen
+- tapOn: "Permanently delete Vintage Canon Camera"
+- tapOn:
+    text: "^Delete Permanently$"
+    index: 1
+- assertNotVisible: "Vintage Canon Camera"
+- tapOn:
+    id: recently-deleted-back
+- assertVisible:
+    id: inventory-screen
