@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or setup help
+    url: https://github.com/ti84plusprograms/listflick/discussions
+    about: Ask questions and get setup help in Discussions.
+  - name: Security vulnerability
+    url: https://github.com/ti84plusprograms/listflick/security/policy
+    about: Report security problems privately, not in a public issue.

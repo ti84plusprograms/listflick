@@ -33,7 +33,8 @@ self-hoster's own provider account and be enabled explicitly.
 
 ## Reporting issues
 
-Use the [GitHub issue tracker](https://github.com/ti84plusprograms/marketplace-listing-assistant/issues)
-for bugs and feature requests. Do not include credentials, ID tokens,
+Use the [GitHub issue tracker](https://github.com/ti84plusprograms/listflick/issues)
+for bugs and feature requests, and [Discussions](https://github.com/ti84plusprograms/listflick/discussions)
+for questions. Do not include credentials, ID tokens,
 service-account files, API keys, or private photos in an issue. See
 [SECURITY.md](SECURITY.md) for reporting security vulnerabilities privately.

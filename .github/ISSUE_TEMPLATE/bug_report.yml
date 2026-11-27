@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in the app or backend doesn't work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Do not paste API keys, ID tokens, Firebase config files, or private photos here.
+        For a security problem, follow SECURITY.md instead of opening an issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Take 3 photos of an item
+        2. Tap Create listing
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it happen?
+      options:
+        - Mobile app (iOS)
+        - Mobile app (Android)
+        - Backend
+        - Docs or setup
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: AI provider
+      options:
+        - Gemini
+        - Groq
+        - Not relevant
+  - type: input
+    id: version
+    attributes:
+      label: Commit or release
+      description: The git commit or release tag you're running.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Backend logs, Metro output, or a screenshot. Remove any secrets first.
+      render: text
