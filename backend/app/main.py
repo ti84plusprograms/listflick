@@ -8,11 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.account import router as account_router
 from app.api.items import router as items_router
+from app.api.recheck import router as recheck_router
 from app.config import settings
+from app.utils.body_limit import VideoUploadSizeLimitMiddleware
 from app.models.database import (
     delete_item,
     init_db,
     item_image_paths,
+    item_video_paths,
     list_active_pending_paths,
     list_expired_pending_items,
 )
@@ -48,6 +51,7 @@ async def lifespan(app: FastAPI):
         await delete_item(item["id"], item["user_id"])
         try:
             await storage_service.delete_pending(item_image_paths(item))
+            await storage_service.delete(item_video_paths(item))
         except Exception:
             logger.warning(
                 "Expired pending item left orphaned storage item_id=%s",
@@ -64,14 +68,16 @@ async def lifespan(app: FastAPI):
     effective_fallback = (settings.allow_server_ai_key_fallback or settings.e2e_mode) and not e2e_byok_ui
     gemini_status = "CONFIGURED" if (settings.gemini_api_key or settings.e2e_mode) and not e2e_byok_ui else "NOT CONFIGURED"
     groq_status = "CONFIGURED" if (settings.groq_api_key or settings.e2e_mode) and not e2e_byok_ui else "NOT CONFIGURED"
+    claude_status = "CONFIGURED" if (settings.anthropic_api_key or settings.e2e_mode) and not e2e_byok_ui else "NOT CONFIGURED"
     fallback_status = "ENABLED" if effective_fallback else "DISABLED"
     logger.info(
-        "AI Configuration: mode=%s | default_provider=%s | server_fallback=%s | gemini=%s | groq=%s",
+        "AI Configuration: mode=%s | default_provider=%s | server_fallback=%s | gemini=%s | groq=%s | claude=%s",
         ai_mode,
         settings.ai_provider,
         fallback_status,
         gemini_status,
         groq_status,
+        claude_status,
     )
     yield
 
@@ -83,6 +89,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(VideoUploadSizeLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -92,6 +99,7 @@ app.add_middleware(
 )
 
 app.include_router(items_router)
+app.include_router(recheck_router)
 app.include_router(account_router)
 
 
@@ -107,13 +115,15 @@ async def health():
     effective_fallback = (settings.allow_server_ai_key_fallback or settings.e2e_mode) and not e2e_byok_ui
     gemini_configured = (bool(settings.gemini_api_key) or settings.e2e_mode) and not e2e_byok_ui
     groq_configured = (bool(settings.groq_api_key) or settings.e2e_mode) and not e2e_byok_ui
+    claude_configured = (bool(settings.anthropic_api_key) or settings.e2e_mode) and not e2e_byok_ui
     logger.info(
-        "GET /health: ai_provider=%s, ai_mode=%s, fallback=%s, gemini_configured=%s, groq_configured=%s",
+        "GET /health: ai_provider=%s, ai_mode=%s, fallback=%s, gemini_configured=%s, groq_configured=%s, claude_configured=%s",
         settings.ai_provider,
         "deterministic_e2e" if settings.e2e_mode else "provider",
         effective_fallback,
         gemini_configured,
         groq_configured,
+        claude_configured,
     )
     return {
         "status": "ok",
@@ -124,10 +134,13 @@ async def health():
         "firebase_app_initialized": bool(firebase_admin._apps),
         "gemini_configured": gemini_configured,
         "groq_configured": groq_configured,
+        "claude_configured": claude_configured,
         "gemini_model": settings.gemini_model,
         "groq_vision_model": settings.groq_vision_model,
         "groq_vision_reasoning_effort": settings.groq_vision_reasoning_effort,
         "groq_text_model": settings.groq_text_model,
+        "claude_vision_model": settings.claude_vision_model,
+        "claude_text_model": settings.claude_text_model,
         "analysis_executor": "request_inline",
         "analysis_lease_seconds": settings.analysis_lease_seconds,
         "analysis_max_attempts": settings.analysis_max_attempts,

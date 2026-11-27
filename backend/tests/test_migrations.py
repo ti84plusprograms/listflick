@@ -62,7 +62,7 @@ async def test_migrations_apply_once_in_order() -> None:
     await run_migrations(connection)
     first_run_commands = len(connection.commands)
 
-    assert connection.applied == {1, 2, 3, 5, 6, 7, 8, 9, 10}
+    assert connection.applied == {1, 2, 3, 5, 6, 7, 8, 9, 10, 11}
     assert connection.commands[:2] == [
         "BEGIN",
         "SELECT pg_advisory_xact_lock($1, $2)",
@@ -111,7 +111,7 @@ async def test_concurrent_migration_runners_serialize_version_claims() -> None:
 
     await asyncio.gather(run_migrations(first), run_migrations(second))
 
-    assert applied == {1, 2, 3, 5, 6, 7, 8, 9, 10}
+    assert applied == {1, 2, 3, 5, 6, 7, 8, 9, 10, 11}
     inserts = [
         command
         for connection in (first, second)
@@ -127,7 +127,7 @@ async def test_resumable_migration_runs_after_historical_version_four() -> None:
 
     await run_migrations(connection)
 
-    assert connection.applied == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+    assert connection.applied == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
     assert any("pending_expires_at" in command for command in connection.commands)
     assert any("CREATE TABLE IF NOT EXISTS analysis_jobs" in command for command in connection.commands)
     assert any("FROM authenticated" in command for command in connection.commands)
@@ -139,7 +139,7 @@ async def test_security_migration_skips_historical_optional_tables_safely() -> N
 
     await run_migrations(connection)
 
-    assert connection.applied == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+    assert connection.applied == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
     security_command = next(
         command for command in connection.commands if "app_table_name TEXT" in command
     )
@@ -153,7 +153,7 @@ async def test_function_default_execute_revoke_is_global() -> None:
 
     await run_migrations(connection)
 
-    assert connection.applied == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+    assert connection.applied == {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
     function_default_command = next(
         command
         for command in connection.commands

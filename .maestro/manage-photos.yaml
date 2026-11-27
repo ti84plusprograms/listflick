@@ -87,7 +87,9 @@ tags:
 
 # Create the deterministic draft through the normal listing UI.
 - tapOn:
-    id: home-choose-from-library
+    id: home-new-listing
+- tapOn:
+    id: camera-open-library
 - runFlow: helpers/pick-first-photo.yaml
 - assertVisible:
     id: selected-photo-count

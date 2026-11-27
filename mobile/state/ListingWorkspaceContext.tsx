@@ -13,6 +13,7 @@ import type {
   ChecklistItem,
   ImageQualityFeedback,
   ListingQuality,
+  ListingVideo,
   ListingWorkspaceState,
   PriceSuggestion,
 } from "../types/listing";
@@ -44,6 +45,8 @@ export interface ListingInsightsState {
 export interface ListingPhotosState {
   imageUris: string[];
   imageQualityFeedback: ImageQualityFeedback[];
+  /** The listing's one video (Marketplace's separate "Add video" slot). */
+  video?: ListingVideo | null;
 }
 
 interface ListingWorkspaceActions {
@@ -73,6 +76,7 @@ const EMPTY_INSIGHTS: ListingInsightsState = {
 const EMPTY_PHOTOS: ListingPhotosState = {
   imageUris: [],
   imageQualityFeedback: [],
+  video: null,
 };
 
 const IdentityContext = createContext<ListingIdentityState | null>(null);
@@ -118,6 +122,7 @@ function photosFromListing(listing: ListingWorkspaceState): ListingPhotosState {
   return {
     imageUris: listing.imageUris,
     imageQualityFeedback: listing.imageQualityFeedback,
+    video: listing.video ?? null,
   };
 }
 
@@ -154,6 +159,7 @@ export function ListingWorkspaceProvider({ children }: { children: ReactNode }) 
       return {
         imageUris: merged.imageUris,
         imageQualityFeedback: merged.imageQualityFeedback,
+        video: merged.video ?? null,
       };
     });
   }, []);
@@ -225,6 +231,7 @@ export function useListingWorkspaceSnapshot(): ListingWorkspaceState {
       listingQuality: insights.listingQuality,
       missingChecklist: insights.missingChecklist,
       imageQualityFeedback: photos.imageQualityFeedback,
+      video: photos.video ?? null,
     }),
     [identity, details, pricing, insights, photos]
   );

@@ -4,7 +4,8 @@ All `/api/items` routes require a Firebase bearer token. The backend returns
 generic auth errors and scopes records to the verified Firebase UID.
 
 Provider-execution routes (`POST /api/items/analyze`, `POST
-/api/items/{id}/analysis-jobs`, and `POST /api/items/improve`) accept the
+/api/items/{id}/analysis-jobs`, `POST /api/items/improve`, and `POST
+/api/items/recheck`, plus `POST /api/items/{id}/answers` unless `dismiss` is true) accept the
 effective provider in `X-ListFlick-AI-Provider` and an optional device key in
 `X-ListFlick-AI-Key`. A device key is never included in request bodies,
 responses, or durable analysis state. Older clients without the provider header
@@ -15,7 +16,7 @@ The mobile client resolves the effective provider as follows:
 
 | Saved preference | Server fallback | Effective provider |
 |---|---|---|
-| Gemini or Groq | either | the saved provider |
+| Gemini, Groq, or Claude | either | the saved provider |
 | none | enabled | the backend `AI_PROVIDER` reported by `/health` |
 | none | disabled | none; require the user to choose a provider |
 
@@ -41,10 +42,15 @@ the UID in that verified token.
 | `POST` | `/api/items/upload` | upload one validated image |
 | `POST` | `/api/items/upload-multiple` | upload up to eight validated images |
 | `PUT` | `/api/items/{id}/images` | replace an item's image set |
+| `POST` | `/api/items/upload-video` | start a listing from a video alone; the sharpest frame becomes the cover photo |
+| `PUT` | `/api/items/{id}/video` | add or replace the listing's one video (with optional candidate frames) |
+| `DELETE` | `/api/items/{id}/video` | remove the listing's video and its frames |
 | `POST` | `/api/items/analyze` | legacy synchronous analysis for installed clients |
 | `POST` | `/api/items/{id}/analysis-jobs` | start or resume request-inline analysis |
 | `GET` | `/api/items/{id}/analysis-jobs` | return lightweight analysis-job status |
 | `POST` | `/api/items/improve` | apply an explicit listing improvement |
+| `POST` | `/api/items/recheck` | re-check earlier AI tips against the current text and, optionally, the item's stored photos; returns updated tips (up to 2 new) and per-photo feedback |
+| `POST` | `/api/items/{id}/answers` | apply seller answers or edits: re-price, revise the description, clear answered questions |
 | `POST` | `/api/items/{id}/save` | save listing and optionally sync Notion |
 | `POST` | `/api/items/{id}/notion/retry` | retry Notion synchronization |
 | `POST` | `/api/items/{id}/trash` | move an item to Recently Deleted |
@@ -56,6 +62,8 @@ the UID in that verified token.
 | `GET`/`HEAD` | `/api/items/{id}/image` | return the first image |
 | `GET`/`HEAD` | `/api/items/{id}/image/{index}` | return image bytes |
 | `GET` | `/api/items/{id}/image/{index}/url` | return a signed URL |
+| `GET`/`HEAD` | `/api/items/{id}/video/{video_id}` | return video bytes (supports `Range`) |
+| `GET` | `/api/items/{id}/video/{video_id}/url` | return a signed video URL |
 | `GET` | `/health` | report backend configuration status |
 | `DELETE` | `/api/account` | permanently delete the authenticated account and app-owned data |
 
@@ -89,15 +97,58 @@ consume attempts.
 
 Credential error objects use `AI_CREDENTIAL_REQUIRED` or
 `AI_PROVIDER_CREDENTIAL_INVALID` and include the safe `provider` name
-(`gemini` or `groq`). The mobile client uses that metadata to open the matching
+(`gemini`, `groq`, or `claude`). The mobile client uses that metadata to open the matching
 add/replace-key flow for analysis and listing improvement. Error responses
 never include the submitted key.
+
+Analysis sends every photo of the item (up to 8, cover first; Groq gets at
+most 5) to the vision model in one call. The analysis and listing can carry a
+`price_question` (`null` or `{question, why, options[]}`) and up to three
+`buyer_questions` (`{question, options[], affects_price}`). They are stored
+with the item, returned by `GET /api/items/{id}`, and listed as `missing`
+checklist items until answered.
+
+`POST /api/items/{id}/answers` takes `{answers: [{question, answer,
+affects_price}], changes: {condition, flaws, brand_model, accessories} | null,
+listing: GeneratedListing | null, active_price, active_price_source, dismiss}`.
+It re-prices only when an answer or change affects price, keeps a manual
+`active_price`, moves a picked tier (`ai_fast_sale`, `ai_recommended`,
+`ai_high_ask`) to the new suggestion, revises the description, persists the
+result and returns `{item_id, listing, analysis, missing_checklist, repriced,
+active_price, active_price_source}`. `dismiss: true` clears every open question
+without a provider call.
+
+Each listing can have one video, matching Facebook Marketplace's separate
+"Add video" button (the cover stays a photo). Video uploads are multipart with
+`file` (MP4, MOV, M4V or WebM, at most `MAX_VIDEO_UPLOAD_MB`, default 100 MB),
+up to 24 `frames` (JPEG stills the phone extracted at even times), `frame_times`
+(seconds, JSON list or comma-separated) and `duration` (seconds). The backend
+scores the frames with Pillow (drops dark frames and the blurriest 30%, then
+farthest-point selection on an 8x8 colour signature, stopping at
+near-duplicates but keeping 3 frames for videos of 4 seconds or more) and keeps
+at most 6. Analysis sends the photos first, then
+`min(6, max(2, 8 - photo_count))` frames (Groq: within its 5-image cap), and the
+prompt says which images are frames and when they were taken. A second upload
+replaces the first video. `GET /api/items/{id}` returns `video: {id, url,
+content_type, size_bytes, duration_seconds, frame_count, cover_from_video}` or
+`null`. Item delete, draft discard, expiry and account deletion remove the video
+and its frames. `upload-video` accepts the same `Idempotency-Key` header as the
+image upload routes (the fingerprint is the video's bytes).
+
+Notion sync uploads the video too (single-part up to 20 MiB, multi-part above),
+adds it after the photos in the `Photos` files property and as a video block in
+the page, with a note on where each piece of media goes on Marketplace. A video
+Notion will not take (free workspaces cap files at 5 MiB) does not fail the
+sync: `notion_sync.warnings` carries "Video is too large for your Notion plan,
+so it wasn't uploaded." The Notion upload is reused on later syncs of the same
+video.
 
 When the legacy synchronous route has already stored valid analysis and listing
 results, item-scoped kickoff reconciles any owner-matched stale job to
 `succeeded` and returns those results without another provider call.
 
-The Pydantic schemas in `backend/app/schemas/listing.py` are the API contract
+The Pydantic schemas in `backend/app/schemas/listing.py` (and
+`backend/app/schemas/recheck.py` for the tip re-check) are the API contract
 source of truth. The mobile client keeps corresponding named response types in
 `mobile/types/api.ts`; functions in `mobile/services/api.ts` use those types
 instead of defining inline response objects. Update the backend schema, mobile

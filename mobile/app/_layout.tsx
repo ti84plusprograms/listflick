@@ -3,19 +3,25 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { E2E_RESET_AI_SETTINGS } from "../constants/config";
-import { theme } from "../constants/theme";
+import { theme, themedStyles } from "../constants/theme";
 import { clearProviderApiKeys } from "../services/aiCredentials";
 import { clearSelectedAIProvider } from "../services/storage";
 import { AIInsightsProvider } from "../state/AIInsightsContext";
 import { ListingWorkspaceProvider } from "../state/ListingWorkspaceContext";
 import { AuthProvider, useAuth } from "../state/AuthContext";
+import { AppearanceProvider, useAppearance } from "../state/AppearanceContext";
+import { configureNotificationHandler } from "../services/notifications";
 import { authDebugLog } from "../utils/authDebug";
+
+configureNotificationHandler();
 
 function RootLayoutNav() {
   const { user, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
   const didReportUsableScreen = useRef(false);
+  const { scheme } = useAppearance();
+  const statusBarStyle = scheme === "dark" ? "light" : "dark";
 
   useEffect(() => {
     if (loading) return;
@@ -62,7 +68,7 @@ function RootLayoutNav() {
   if (loading || isRedirecting) {
     return (
       <View style={styles.loadingContainer}>
-        <StatusBar style="dark" />
+        <StatusBar style={statusBarStyle} />
         <ActivityIndicator color={theme.colors.textPrimary} />
       </View>
     );
@@ -71,8 +77,10 @@ function RootLayoutNav() {
   return (
     <AIInsightsProvider>
       <ListingWorkspaceProvider>
-        <StatusBar style="dark" />
+        <StatusBar style={statusBarStyle} />
+        {/* Keyed by scheme so every screen redraws with the new palette */}
         <Stack
+          key={scheme}
           screenOptions={{
             headerStyle: { backgroundColor: theme.colors.background },
             headerTintColor: theme.colors.textPrimary,
@@ -101,6 +109,7 @@ function RootLayoutBootstrap() {
   const { user, loading } = useAuth();
   const [preparedUid, setPreparedUid] = useState<string | null>(null);
   const [resetFailed, setResetFailed] = useState(false);
+  const { scheme } = useAppearance();
 
   useEffect(() => {
     if (!E2E_RESET_AI_SETTINGS || loading || !user || preparedUid === user.uid) return;
@@ -124,9 +133,9 @@ function RootLayoutBootstrap() {
   if (!ready) {
     return (
       <View style={styles.loadingContainer} testID={resetFailed ? "e2e-ai-reset-failed" : "e2e-ai-reset-pending"}>
-        <StatusBar style="dark" />
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
         {resetFailed ? (
-          <Text>Could not reset the local E2E AI settings.</Text>
+          <Text style={{ color: theme.colors.textPrimary }}>Could not reset the local E2E AI settings.</Text>
         ) : (
           <ActivityIndicator color={theme.colors.textPrimary} />
         )}
@@ -139,17 +148,19 @@ function RootLayoutBootstrap() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <RootLayoutBootstrap />
-    </AuthProvider>
+    <AppearanceProvider>
+      <AuthProvider>
+        <RootLayoutBootstrap />
+      </AuthProvider>
+    </AppearanceProvider>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   loadingContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.colors.background,
   },
-});
+}));

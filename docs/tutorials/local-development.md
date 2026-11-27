@@ -23,7 +23,7 @@ cp backend/.env.example backend/.env
 ```
 
 For the default BYOK mode, leave `ALLOW_SERVER_AI_KEY_FALLBACK=false`; users
-choose Gemini or Groq and supply their own key in the mobile app. For an
+choose Gemini, Groq, or Claude and supply their own key in the mobile app. For an
 opt-in self-hosted server-key mode, set your own provider key and explicitly
 enable fallback. For a real deployment, also configure your own PostgreSQL,
 Firebase Admin credentials, and Supabase Storage. See the

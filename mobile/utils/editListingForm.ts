@@ -4,6 +4,7 @@ import type {
   DraftListingEdits,
   GeneratedListing,
   ListingDefaults,
+  ImprovementAction,
   ListingQuality,
   ListingWorkspaceState,
   PriceSuggestion,
@@ -90,6 +91,7 @@ export function preferencesFromForm(form: Pick<EditListingFormState, "localPicku
 export function descriptionDetailsFromForm(form: EditListingFormState): DescriptionDetails {
   return {
     askingPrice: formattedAskingPrice(form.priceInput, form.negotiable),
+    negotiable: form.negotiable,
     condition: normalizeListingCondition(form.condition, form.flaws) || form.condition.trim(),
     brandModel: form.brandModel.trim(),
     color: form.color.trim(),
@@ -290,4 +292,33 @@ export function buildAIImprovementListing(
     },
     listing_quality: listingQuality ?? defaultListingQuality(),
   };
+}
+
+export type ImprovementSnapshot = { title: string; description: string; price: string };
+
+/** Short, honest note on what an AI improvement actually changed. */
+export function improvementSummary(
+  action: ImprovementAction,
+  before: ImprovementSnapshot,
+  after: ImprovementSnapshot
+): string {
+  if (action === "make_price_more_competitive") {
+    return after.price && after.price !== before.price
+      ? `Price lowered to $${after.price} to sell faster.`
+      : "The price already looks competitive, so it stayed the same.";
+  }
+  const titleChanged = after.title.trim() !== before.title.trim();
+  const descriptionChanged = after.description.trim() !== before.description.trim();
+  if (!titleChanged && !descriptionChanged) return "No changes were needed.";
+  const changed = titleChanged && descriptionChanged ? "Title and description" : titleChanged ? "Title" : "Description";
+  const how: Record<Exclude<ImprovementAction, "make_price_more_competitive">, string> = {
+    make_title_more_searchable: "rewritten so buyers can find it in search",
+    make_description_shorter: "shortened, keeping the key details",
+    make_description_more_casual: "rewritten in a more casual tone",
+    make_description_more_professional: "rewritten in a more polished tone",
+    add_condition_details: "updated with condition details",
+    improve_buyer_trust: "reworded to be clearer and more upfront",
+    generate_platform_ready_version: "polished for Marketplace",
+  };
+  return `${changed} ${how[action]}. Check it over before you save.`;
 }

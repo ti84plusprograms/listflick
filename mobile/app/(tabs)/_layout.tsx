@@ -1,10 +1,13 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../../constants/theme";
+import { setInventoryFilter } from "../../state/inventoryFilter";
 
 export default function TabLayout() {
   return (
     <Tabs
+      // Switching tabs clears Home's "needs attention" filter on Inventory.
+      screenListeners={{ tabPress: () => setInventoryFilter(null) }}
       screenOptions={{
         headerStyle: {
           backgroundColor: theme.colors.background,

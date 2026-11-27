@@ -21,6 +21,8 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: AI_PROVIDER
         value: groq
       - key: ALLOW_SERVER_AI_KEY_FALLBACK

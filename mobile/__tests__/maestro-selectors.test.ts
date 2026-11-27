@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const expectedSelectors: Record<string, string[]> = {
-  "app/(tabs)/index.tsx": ["home-screen", "home-data-ready", "home-choose-from-library"],
+  "app/(tabs)/index.tsx": ["home-screen", "home-data-ready", "home-new-listing"],
   "app/camera.tsx": ["camera-screen", "camera-next", "camera-open-library"],
   "components/camera/PhotoManager.tsx": ["selected-photo-count"],
   "app/processing.tsx": ["processing-screen", "processing-status"],
@@ -90,7 +90,7 @@ for (const [path, selectors] of Object.entries(expectedSelectors)) {
 
 const inventory = readFileSync(resolve(root, "app/(tabs)/inventory.tsx"), "utf8");
 for (const expected of [
-  'accessibilityLabel={`Open ${title} listing, ${price}, ${statusLabel}`}',
+  'accessibilityLabel={`Open ${title} listing, ${price}, ${statusLabel(item)}`}',
   'accessibilityHint="Opens listing details"',
   'accessibilityLabel={`Remove ${title} from inventory`}',
 ] as const) {

@@ -16,14 +16,27 @@ import { DraggableGrid } from "react-native-draggable-grid";
 import { Ionicons } from "@expo/vector-icons";
 
 import { AuthenticatedImage } from "../components/AuthenticatedImage";
+import { ListingVideoPlayer } from "../components/media/ListingVideoPlayer";
 import { PhotoViewer } from "../components/managePhotos/PhotoViewer";
-import { ApiError, replaceItemImages } from "../services/api";
+import { ApiError, deleteItemVideo, replaceItemImages, uploadItemVideo } from "../services/api";
 import { invalidateAuthenticatedImageUri } from "../services/imageRetrieval";
 import {
   getDraftListingEdits,
   saveDraftListingEdits,
 } from "../services/storage";
-import type { ImageQualityStatus } from "../types/listing";
+import type { ImageQualityStatus, ListingVideo } from "../types/listing";
+import {
+  MANAGE_VIDEO_NOTE,
+  MAX_VIDEO_BYTES,
+  MAX_VIDEO_SECONDS,
+  VIDEO_TOO_LARGE_MESSAGE,
+  addVideoNotice,
+  formatVideoDuration,
+  listingVideoFromItem,
+  manageMediaLabel,
+  videoChanged,
+  videoMimeType,
+} from "../utils/listingVideo";
 import {
   applyDraftListingEdits,
   parseListingWorkspaceParams,
@@ -36,7 +49,7 @@ import {
   type ManagePhotoEntry,
   type PhotoLoadState,
 } from "../utils/managePhotos";
-import { theme } from "../constants/theme";
+import { theme, themedStyles } from "../constants/theme";
 import { useAIInsightsEnabled } from "../state/AIInsightsContext";
 import {
   useListingIdentity,
@@ -86,7 +99,10 @@ export default function ManagePhotosScreen() {
   const insightsEnabled = useAIInsightsEnabled();
   const identityRef = useRef(useListingIdentity());
   identityRef.current = useListingIdentity();
-  const { imageUris, imageQualityFeedback } = useListingPhotos();
+  const { imageUris, imageQualityFeedback, video } = useListingPhotos();
+  // What the backend has, so Done knows whether to upload or remove the video.
+  const savedVideoRef = useRef<ListingVideo | null | undefined>(undefined);
+  if (savedVideoRef.current === undefined) savedVideoRef.current = video ?? listing.video ?? null;
   const { hydrateWorkspace, updatePhotos } = useListingWorkspaceActions();
   const photos = useMemo(
     () => createManagePhotoEntries(imageUris, imageQualityFeedback),
@@ -193,6 +209,37 @@ export default function ManagePhotosScreen() {
     }
   };
 
+  const pickVideo = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["videos"],
+      allowsMultipleSelection: false,
+      videoMaxDuration: MAX_VIDEO_SECONDS,
+    });
+    const asset = result.canceled ? undefined : result.assets[0];
+    if (!asset?.uri) return;
+    if (asset.fileSize && asset.fileSize > MAX_VIDEO_BYTES) {
+      Alert.alert("Video too large", VIDEO_TOO_LARGE_MESSAGE);
+      return;
+    }
+    const notice = addVideoNotice(video);
+    updatePhotos({
+      video: {
+        uri: asset.uri,
+        durationSeconds: (asset.duration ?? 0) / 1000,
+        mimeType: videoMimeType(asset.uri, asset.mimeType),
+        sizeBytes: asset.fileSize ?? undefined,
+      },
+    });
+    if (notice) Alert.alert("One video per listing", notice);
+  };
+
+  const removeVideo = () => {
+    Alert.alert("Remove video?", "The video will be removed from this listing.", [
+      { text: "Keep", style: "cancel" },
+      { text: "Remove", style: "destructive", onPress: () => updatePhotos({ video: null }) },
+    ]);
+  };
+
   const removePhoto = (index: number) => {
     if (photos.length === 1) {
       Alert.alert("Photo required", "A listing must keep at least one photo.");
@@ -222,6 +269,18 @@ export default function ManagePhotosScreen() {
       const result = itemId
         ? await replaceItemImages(itemId, imageUris)
         : null;
+      // One video per listing: upload a new or replaced video, or remove a deleted one.
+      let savedVideo = video ?? null;
+      const videoChange = itemId ? videoChanged(savedVideoRef.current, video) : null;
+      if (itemId && videoChange === "upload" && video) {
+        const uploaded = await uploadItemVideo(itemId, video);
+        const backendVideo = listingVideoFromItem(uploaded.video);
+        savedVideo = backendVideo;
+      } else if (itemId && videoChange === "remove") {
+        await deleteItemVideo(itemId);
+        savedVideo = null;
+      }
+      savedVideoRef.current = savedVideo;
       const retainedFeedback = photos.flatMap((photo, index) => photo.feedback
         ? [{ ...photo.feedback, image_index: index }]
         : []);
@@ -230,10 +289,12 @@ export default function ManagePhotosScreen() {
         ...(currentDraft ?? {}),
         imageUris,
         imageQualityFeedback: result?.image_quality_feedback ?? retainedFeedback,
+        video: savedVideo,
       });
       updatePhotos({
         imageUris,
         imageQualityFeedback: result?.image_quality_feedback ?? retainedFeedback,
+        video: savedVideo,
       });
       router.back();
     } catch (error) {
@@ -275,7 +336,7 @@ export default function ManagePhotosScreen() {
           <Ionicons name="chevron-back" size={20} color={theme.colors.textPrimary} />
           <Text style={styles.headerButtonText}>Preview</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>Manage Photos</Text>
+        <Text style={styles.headerTitle}>{manageMediaLabel(Boolean(video))}</Text>
         <View style={{ width: 60 }} />
       </View>
 
@@ -439,6 +500,35 @@ export default function ManagePhotosScreen() {
             Tap a photo to view it. Hold and drag to reorder. The top-left photo is your cover.
           </Text>
         )}
+
+        {/* Video: Marketplace's separate "Add video" slot */}
+        <View style={styles.videoSection}>
+          <View style={styles.videoHeader}>
+            <Text style={styles.videoTitle}>Video</Text>
+            {video && <Text style={styles.videoDuration}>{formatVideoDuration(video.durationSeconds)}</Text>}
+          </View>
+          {video ? (
+            <>
+              <ListingVideoPlayer uri={video.uri} style={styles.videoPlayer} />
+              <View style={styles.videoActions}>
+                <Pressable style={styles.videoAction} onPress={() => void pickVideo()} accessibilityRole="button">
+                  <Ionicons name="swap-horizontal" size={16} color={theme.colors.textPrimary} />
+                  <Text style={styles.videoActionText}>Replace</Text>
+                </Pressable>
+                <Pressable style={styles.videoAction} onPress={removeVideo} accessibilityRole="button">
+                  <Ionicons name="trash-outline" size={16} color={theme.colors.textPrimary} />
+                  <Text style={styles.videoActionText}>Remove</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            <Pressable style={styles.addVideoBox} onPress={() => void pickVideo()} accessibilityRole="button">
+              <Ionicons name="videocam-outline" size={22} color={theme.colors.textSecondary} />
+              <Text style={styles.videoActionText}>Add a short video</Text>
+            </Pressable>
+          )}
+          <Text style={styles.videoNote}>{MANAGE_VIDEO_NOTE}</Text>
+        </View>
       </ScrollView>
 
       <PhotoViewer
@@ -464,7 +554,68 @@ export default function ManagePhotosScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
+  videoSection: {
+    marginTop: theme.spacing.sectionGap,
+    gap: 10,
+  },
+  videoHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+  },
+  videoTitle: {
+    ...theme.typography.sectionLabel,
+    color: theme.colors.textSecondary,
+  },
+  videoDuration: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: theme.colors.textSecondary,
+  },
+  videoPlayer: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    borderRadius: theme.radius.photo,
+    overflow: "hidden",
+  },
+  videoActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  videoAction: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: theme.radius.button,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  videoActionText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.textPrimary,
+  },
+  addVideoBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 18,
+    borderRadius: theme.radius.photo,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  videoNote: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: theme.colors.textSecondary,
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -658,4 +809,4 @@ const styles = StyleSheet.create({
     ...theme.typography.buttonLabel,
     color: theme.colors.accentText,
   },
-});
+}));

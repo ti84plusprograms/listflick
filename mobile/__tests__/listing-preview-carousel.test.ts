@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
+  carouselSlides,
   clampCarouselIndex,
   carouselIndexAfterMomentum,
 } from "../components/listing/imageCarouselState";
@@ -34,14 +35,14 @@ equal(carouselSource.includes("onScroll={handleScroll}"), true, "real-time scrol
 equal(carouselSource.includes("scrollEventThrottle={16}"), true, "scroll events are throttled for responsive updates");
 equal(carouselSource.includes("onLayout={handleLayout}"), true, "the carousel measures its rendered width");
 equal(carouselSource.includes("i === activeIndex"), true, "the active dot follows carousel state");
-equal(carouselSource.includes("imageUris.length > 1"), true, "one photo omits decorative dots");
+equal(carouselSource.includes("slideCount > 1"), true, "one slide omits decorative dots");
 equal(
   carouselSource.includes("initialScrollIndex={activeIndex}"),
   true,
   "a remounted carousel retains its clamped logical index",
 );
 equal(
-  carouselSource.includes('key={`listing-preview-${pageWidth}-${imageUris.length}`}'),
+  carouselSource.includes('key={`listing-preview-${pageWidth}-${slideCount}`}'),
   true,
   "width and image-count changes realign the list",
 );
@@ -65,5 +66,19 @@ equal(
   true,
   "decorative dots are hidden from iOS accessibility",
 );
+
+// The video is the last slide, after every photo.
+equal(
+  JSON.stringify(carouselSlides(["a.jpg", "b.jpg"], "/api/items/1/video/v1")),
+  JSON.stringify([
+    { kind: "photo", uri: "a.jpg" },
+    { kind: "photo", uri: "b.jpg" },
+    { kind: "video", uri: "/api/items/1/video/v1" },
+  ]),
+  "photos come first and the video is the final slide",
+);
+equal(carouselSlides(["a.jpg"], null).length, 1, "no video adds no slide");
+equal(carouselSource.includes("<ListingVideoPlayer"), true, "the video slide plays the video");
+equal(carouselSource.includes('slide.kind === "video"'), true, "slides render by kind");
 
 console.log("Listing preview carousel tests passed.");

@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { theme } from "../../constants/theme";
+import { theme, themedStyles } from "../../constants/theme";
 import { invalidateAuthenticatedImageUri } from "../../services/imageRetrieval";
 import {
   photoLoadStateAfterEnd,
@@ -224,7 +224,7 @@ export function PhotoViewer({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.94)",
+    backgroundColor: theme.colors.overlayBar,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.borderSubtle,
   },
@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 5,
     borderRadius: 3,
-    backgroundColor: "rgba(26,26,26,0.24)",
+    backgroundColor: theme.colors.grabber,
   },
   headerSpacer: {
     width: 44,
@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "rgba(255,255,255,0.94)",
+    backgroundColor: theme.colors.overlayBar,
     borderTopWidth: 1,
     borderTopColor: theme.colors.borderSubtle,
   },
@@ -345,4 +345,4 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     fontSize: 13,
   },
-});
+}));

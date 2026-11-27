@@ -75,7 +75,7 @@ for (const expected of [
 
 for (const expected of [
   "aiProviderFromErrorDetail(detail)",
-  'provider === "gemini" || provider === "groq"',
+  "isAIProvider(provider)",
 ] as const) {
   if (!api.includes(expected)) throw new Error(`Provider error metadata parsing is missing ${expected}`);
 }
@@ -105,3 +105,10 @@ if (api.includes("getProviderApiKey(currentUser.uid, provider)") && api.includes
 }
 
 console.log("AI credential storage and transport wiring tests passed.");
+
+if (!isServerAIKeyFallbackAvailable({ status: "ok", allow_server_ai_key_fallback: true, claude_configured: true, groq_configured: false }, "claude")) {
+  throw new Error("Claude should use its configured server fallback");
+}
+if (isServerAIKeyFallbackAvailable({ status: "ok", allow_server_ai_key_fallback: true, gemini_configured: true, groq_configured: true }, "claude")) {
+  throw new Error("Claude must not use another provider's server key");
+}

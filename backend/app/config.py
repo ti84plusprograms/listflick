@@ -6,6 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SUPPORTED_GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
 DEFAULT_GROQ_TEXT_MODEL = "openai/gpt-oss-20b"
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5"
+SUPPORTED_AI_PROVIDERS = ("gemini", "groq", "claude")
 
 
 class Settings(BaseSettings):
@@ -30,11 +32,19 @@ class Settings(BaseSettings):
     groq_max_retries: int = 2
     groq_request_timeout: int = 30
 
+    anthropic_api_key: str = ""
+    claude_vision_model: str = DEFAULT_CLAUDE_MODEL
+    claude_text_model: str = DEFAULT_CLAUDE_MODEL
+    claude_max_retries: int = 2
+    claude_request_timeout: int = 90
+
     analysis_lease_seconds: int = 300
     analysis_max_attempts: int = 3
     pending_item_retention_hours: int = 168
     notion_sync_lease_seconds: int = 300
     upload_dir: str = "./uploads"
+    # One video per listing (Facebook Marketplace's separate "Add video" slot).
+    max_video_upload_mb: int = 100
 
     supabase_url: str = ""
     supabase_service_role_key: str = ""
@@ -86,6 +96,7 @@ class Settings(BaseSettings):
         "analysis_max_attempts",
         "pending_item_retention_hours",
         "notion_sync_lease_seconds",
+        "max_video_upload_mb",
     )
     @classmethod
     def validate_positive_processing_settings(cls, value: int) -> int:

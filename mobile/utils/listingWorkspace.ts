@@ -4,6 +4,7 @@ import type {
   DraftListingEdits,
   ImageQualityFeedback,
   ListingQuality,
+  ListingVideo,
   ListingWorkspaceState,
   PriceSuggestion,
   SavedListing,
@@ -15,6 +16,8 @@ export type ListingWorkspaceParams = {
   savedId?: string;
   imageUri?: string;
   imageUris?: string;
+  /** JSON ListingVideo. */
+  video?: string;
   title?: string;
   description?: string;
   category?: string;
@@ -59,6 +62,12 @@ function numberParam(value: string | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseListingVideo(value: string | undefined): ListingVideo | null {
+  const video = parseJsonObject<ListingVideo>(value);
+  if (!video || typeof video.uri !== "string" || !video.uri) return null;
+  return { ...video, durationSeconds: Number(video.durationSeconds) || 0 };
+}
+
 export function parseListingWorkspaceParams(params: ListingWorkspaceParams): ListingWorkspaceState {
   const imageUris = parseJsonArray<string>(params.imageUris).filter((uri) => typeof uri === "string" && uri.length > 0);
   if (imageUris.length === 0 && params.imageUri) {
@@ -90,6 +99,7 @@ export function parseListingWorkspaceParams(params: ListingWorkspaceParams): Lis
     listingQuality: parseJsonObject<ListingQuality>(params.listingQuality),
     missingChecklist: parseJsonArray<ChecklistItem>(params.checklist),
     imageQualityFeedback: parseJsonArray<ImageQualityFeedback>(params.imageQualityFeedback),
+    video: parseListingVideo(params.video),
   };
 }
 
@@ -105,12 +115,14 @@ export function applyDraftListingEdits(
     imageUris,
     imageUri: imageUris[0] ?? listing.imageUri,
     imageQualityFeedback: draft.imageQualityFeedback ?? listing.imageQualityFeedback,
+    video: draft.video !== undefined ? draft.video : listing.video,
     title: draft.title ?? listing.title,
     description: draft.description ?? listing.description,
     category: draft.category ?? listing.category,
     condition: normalizeListingCondition(draft.condition, draft.flaws) || (draft.condition ?? listing.condition),
     activePrice: typeof draft.activePrice === "number" ? draft.activePrice : listing.activePrice,
     activePriceSource: draft.activePriceSource ?? listing.activePriceSource,
+    priceSuggestion: draft.priceSuggestion ?? listing.priceSuggestion,
   };
 }
 
@@ -120,6 +132,7 @@ export function savedListingToWorkspace(listing: SavedListing): ListingWorkspace
     savedId: listing.id,
     imageUri: listing.imageUri,
     imageUris: listing.imageUris ?? (listing.imageUri ? [listing.imageUri] : []),
+    video: listing.video ?? null,
     title: listing.title,
     description: listing.description,
     category: listing.category,
@@ -140,6 +153,7 @@ export function listingWorkspaceToParams(listing: ListingWorkspaceState): Listin
     savedId: listing.savedId,
     imageUri: listing.imageUri,
     imageUris: JSON.stringify(listing.imageUris),
+    video: listing.video ? JSON.stringify(listing.video) : undefined,
     title: listing.title,
     description: listing.description,
     category: listing.category,

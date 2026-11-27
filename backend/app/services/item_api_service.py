@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import Response
 
-from app.models.database import item_image_paths
+from app.models.database import item_image_paths, item_media_paths, item_video_paths, item_video_record
 from app.schemas.listing import ImageQualityError as ImageQualityErrorSchema
 from app.schemas.listing import SaveListingRequest, TrashRequest, UploadResponse
 from app.services.image_service import ImageQualityError, validate_and_process
@@ -276,6 +276,28 @@ async def replace_item_image_set(
     return upload_response(item_id, len(new_paths), processed.feedback)
 
 
+async def _follow_promoted_video_cover(
+    item: ItemRecord,
+    uid: str,
+    pending_paths: list[str],
+    promoted_paths: list[str],
+    update_video: Callable[[str, str, dict | None], Awaitable[None]],
+) -> None:
+    """Point the video's cover frame at the photo's permanent path after promotion.
+
+    Otherwise the saved listing forgets that its cover is a video still, and re-analysis and
+    photo feedback treat it as a real photo.
+    """
+    video = item_video_record(item)
+    cover_path = video.get("cover_frame_path") if video else None
+    if not video or not cover_path or cover_path not in pending_paths:
+        return
+    index = pending_paths.index(cover_path)
+    if index >= len(promoted_paths):
+        return
+    await update_video(item["id"], uid, {**video, "cover_frame_path": promoted_paths[index]})
+
+
 async def save_listing_with_pending_images(
     item_id: str,
     uid: str,
@@ -291,6 +313,7 @@ async def save_listing_with_pending_images(
     finish_notion_sync: Callable[..., Awaitable[dict]],
     notion: Any,
     storage: Storage,
+    update_video: Callable[[str, str, dict | None], Awaitable[None]] | None = None,
 ) -> Any:
     pending_paths = item_image_paths(item) if item.get("image_storage_state") == "pending" else []
     promoted_paths: list[str] = []
@@ -298,6 +321,8 @@ async def save_listing_with_pending_images(
         if pending_paths:
             promoted_paths = await storage.promote_pending(item_id, pending_paths)
             await update_images(item_id, uid, promoted_paths, "permanent")
+            if update_video is not None:
+                await _follow_promoted_video_cover(item, uid, pending_paths, promoted_paths, update_video)
             item = await get_item_record(item_id, uid) or item
 
         response = await save_record(
@@ -371,7 +396,7 @@ async def permanently_delete_trashed_item(
     if item.get("status") != "trashed":
         raise HTTPException(status_code=404, detail="Trashed item not found")
     try:
-        await storage.delete(item_image_paths(item))
+        await storage.delete(item_media_paths(item))
         await delete_item_record(item_id, uid)
     except StorageError as exc:
         raise HTTPException(status_code=502, detail="Could not permanently delete images") from exc
@@ -395,6 +420,7 @@ async def discard_pending_item(
             await storage.delete_pending(paths)
         else:
             await storage.delete(paths)
+        await storage.delete(item_video_paths(item))
     except StorageError:
         logger.warning("Pending item storage cleanup left orphaned paths item_id=%s", item_id, exc_info=True)
     return {"item_id": item_id, "discarded": True}
@@ -411,7 +437,7 @@ async def cleanup_expired_trashed_items(
     purged = 0
     for item in expired:
         try:
-            await storage.delete(item_image_paths(item))
+            await storage.delete(item_media_paths(item))
             await delete_item_record(item["id"], uid)
             purged += 1
         except StorageError:
