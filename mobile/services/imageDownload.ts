@@ -1,4 +1,4 @@
-import * as MediaLibrary from "expo-media-library";
+import * as MediaLibrary from "expo-media-library/legacy";
 import { File, Paths } from "expo-file-system";
 
 import { resolveAuthenticatedImageUri } from "./imageRetrieval";
@@ -60,7 +60,9 @@ export async function saveListingImagesToLibrary(
         throw Object.assign(new Error("Operation aborted"), { category: "unknown" });
       }
       try {
-        await MediaLibrary.createAssetAsync(assetUri);
+        // saveToLibraryAsync only needs add-only access; createAssetAsync reads the
+        // new asset back, which fails (after adding it) without full read access.
+        await MediaLibrary.saveToLibraryAsync(assetUri);
       } catch (mediaError) {
         throw Object.assign(
           mediaError instanceof Error ? mediaError : new Error(String(mediaError)),

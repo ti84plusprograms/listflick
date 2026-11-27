@@ -20,15 +20,17 @@ export async function persistPendingAnalysisImages(
     if (directory.exists) directory.delete();
     directory.create({ idempotent: true, intermediates: true });
 
-    return sourceUris.map((uri, index) => {
+    const persistedUris: string[] = [];
+    for (const [index, uri] of sourceUris.entries()) {
       const source = new File(uri);
       if (!source.exists) {
         throw new Error("A selected photo is no longer available.");
       }
       const destination = new File(directory, `${index + 1}${safeExtension(source)}`);
-      source.copy(destination);
-      return destination.uri;
-    });
+      await source.copy(destination);
+      persistedUris.push(destination.uri);
+    }
+    return persistedUris;
   } catch (error) {
     if (directory.exists) directory.delete();
     throw error;

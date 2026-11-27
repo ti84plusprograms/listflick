@@ -567,12 +567,12 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   imageStateOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
   },
   imageErrorOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
     gap: 4,

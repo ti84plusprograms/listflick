@@ -10,8 +10,6 @@ if (BRAND_NAME !== "ListFlick") {
 const expectedBrandReferences = [
   ["Expo app name", "../app.json", '"name": "ListFlick"'],
   ["Expo camera permission", "../app.json", "Allow ListFlick to access your camera"],
-  ["iOS display name", "../ios/ListingAssistant/Info.plist", "<string>ListFlick</string>"],
-  ["Android display name", "../android/app/src/main/res/values/strings.xml", ">ListFlick<"],
   ["Firebase OAuth brand", "../../firebase.json", '"oAuthBrandDisplayName": "ListFlick"'],
   ["FastAPI title", "../../backend/app/main.py", 'title="ListFlick API"'],
 ] as const;

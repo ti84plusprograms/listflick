@@ -2,7 +2,7 @@
 
 import Module from "node:module";
 
-const createdAssets: string[] = [];
+const savedAssets: string[] = [];
 const downloadedFiles: { uri: string; dest: string; headers?: Record<string, string> }[] = [];
 const deletedFiles: string[] = [];
 
@@ -19,21 +19,24 @@ class MockFile {
   static async downloadFileAsync(url: string, file: MockFile, options?: { headers?: Record<string, string> }) {
     if (mockDownloadError) throw mockDownloadError;
     downloadedFiles.push({ uri: url, dest: file.uri, headers: options?.headers });
+    mockAfterDownload?.();
   }
 }
 
-let mockCreateAssetError: Error | null = null;
+let mockSaveError: Error | null = null;
 let mockDownloadError: Error | null = null;
+let mockAfterDownload: (() => void) | null = null;
 let mockResolveAuthUri: ((uri: string) => Promise<{ uri: string; headers?: Record<string, string> }>) | null = null;
 
 const originalLoad = (Module as any)._load;
 (Module as any)._load = function (request: string, parent: any, isMain: boolean) {
   if (request.includes("expo-media-library")) {
     return {
-      createAssetAsync: async (uri: string) => {
-        if (mockCreateAssetError) throw mockCreateAssetError;
-        createdAssets.push(uri);
-        return { id: `asset-${createdAssets.length}` };
+      // Only saveToLibraryAsync is provided: it needs add-only photo access.
+      // createAssetAsync reads the asset back (needs read access) and must not be used.
+      saveToLibraryAsync: async (uri: string): Promise<void> => {
+        if (mockSaveError) throw mockSaveError;
+        savedAssets.push(uri);
       },
     };
   }
@@ -67,30 +70,31 @@ function equal<T>(actual: T, expected: T, message: string): void {
 }
 
 function resetMocks(): void {
-  createdAssets.length = 0;
+  savedAssets.length = 0;
   downloadedFiles.length = 0;
   deletedFiles.length = 0;
-  mockCreateAssetError = null;
+  mockSaveError = null;
   mockDownloadError = null;
+  mockAfterDownload = null;
   mockResolveAuthUri = null;
 }
 
 async function runTests() {
-  // 1. Local file:// URI creates asset directly without remote download
+  // 1. Local file:// URI saves directly without remote download
   resetMocks();
   const fileResult = await saveListingImagesToLibrary(["file:///var/mobile/Containers/Data/photo.jpg"]);
   equal(fileResult, { total: 1, saved: 1, failures: [] }, "file:// saves successfully");
-  equal(createdAssets, ["file:///var/mobile/Containers/Data/photo.jpg"], "MediaLibrary receives local file:// URI");
+  equal(savedAssets, ["file:///var/mobile/Containers/Data/photo.jpg"], "MediaLibrary receives local file:// URI");
   equal(downloadedFiles.length, 0, "no download performed for file:// URI");
 
-  // 2. Android content:// URI creates asset directly without remote download
+  // 2. Android content:// URI saves directly without remote download
   resetMocks();
   const contentResult = await saveListingImagesToLibrary(["content://media/external/images/media/100"]);
   equal(contentResult, { total: 1, saved: 1, failures: [] }, "content:// saves successfully");
-  equal(createdAssets, ["content://media/external/images/media/100"], "MediaLibrary receives content:// URI");
+  equal(savedAssets, ["content://media/external/images/media/100"], "MediaLibrary receives content:// URI");
   equal(downloadedFiles.length, 0, "no download performed for content:// URI");
 
-  // 3. Remote URI downloads to temp file with auth headers, creates asset, and cleans up temp file
+  // 3. Remote URI downloads to temp file with auth headers, saves it, and cleans up temp file
   resetMocks();
   mockResolveAuthUri = async (uri) => ({
     uri: "https://signed.storage.test/item-1.jpg",
@@ -102,10 +106,10 @@ async function runTests() {
   equal(downloadedFiles.length, 1, "downloadFileAsync called once");
   equal(downloadedFiles[0].uri, "https://signed.storage.test/item-1.jpg", "downloads resolved signed URL");
   equal(downloadedFiles[0].headers?.["Authorization"], "Bearer test-jwt-token", "passes auth headers to downloader");
-  equal(createdAssets.length, 1, "asset created in media library");
-  equal(createdAssets[0].startsWith("/mock/cache/listflick-download-"), true, "creates asset from temporary cache file");
+  equal(savedAssets.length, 1, "asset created in media library");
+  equal(savedAssets[0].startsWith("/mock/cache/listflick-download-"), true, "saves from temporary cache file");
   equal(deletedFiles.length, 1, "temporary file was cleaned up on success");
-  equal(deletedFiles[0], createdAssets[0], "deleted the exact temporary file that was created");
+  equal(deletedFiles[0], savedAssets[0], "deleted the exact temporary file that was created");
 
   // 4. Temporary file cleanup on download failure
   resetMocks();
@@ -117,11 +121,11 @@ async function runTests() {
     "categorized as download failure",
   );
   equal(deletedFiles.length, 1, "temporary file was cleaned up even when download failed");
-  equal(createdAssets.length, 0, "no media library asset created on download failure");
+  equal(savedAssets.length, 0, "no media library asset created on download failure");
 
   // 5. Temporary file cleanup and accurate categorization on MediaLibrary failure (defect fix proof)
   resetMocks();
-  mockCreateAssetError = new Error("User denied photo-library write access");
+  mockSaveError = new Error("User denied photo-library write access");
   const mediaFailResult = await saveListingImagesToLibrary(["https://api.test/items/1/image/0"]);
   equal(
     mediaFailResult,
@@ -180,7 +184,7 @@ async function runTests() {
     { index: 1, category: "authentication" },
     { index: 3, category: "unsupported" },
   ], "failures accurately recorded with index and category");
-  equal(createdAssets.length, 3, "3 assets created in library");
+  equal(savedAssets.length, 3, "3 assets created in library");
 
   // 9. Cancellation via AbortSignal
   resetMocks();
@@ -205,11 +209,64 @@ async function runTests() {
     "an upfront cancellation accounts for every unprocessed image",
   );
 
-  // 10. Alert result formatting tests
+  // 10. A saveToLibraryAsync rejection on a local URI is a media_library failure
+  resetMocks();
+  mockSaveError = new Error("The operation couldn't be completed. (PHPhotosErrorDomain error 3311.)");
+  const localMediaFailResult = await saveListingImagesToLibrary(["file:///local/photo.jpg"]);
+  equal(
+    localMediaFailResult,
+    { total: 1, saved: 0, failures: [{ index: 0, category: "media_library" }] },
+    "saveToLibraryAsync rejection categorized as media_library",
+  );
+  equal(downloadedFiles.length, 0, "no download performed for local media_library failure");
+
+  // 11. Abort during remote URL resolution (before any download): nothing downloaded or saved
+  resetMocks();
+  const lateController = new AbortController();
+  mockResolveAuthUri = async (uri) => {
+    lateController.abort();
+    return { uri: `https://storage.test/${uri.length}.jpg` };
+  };
+  const lateAbortResult = await saveListingImagesToLibrary(
+    ["https://api.test/items/1/image/0", "file:///local/2.jpg"],
+    { signal: lateController.signal },
+  );
+  equal(
+    lateAbortResult,
+    { total: 2, saved: 0, failures: [{ index: 0, category: "unknown" }, { index: 1, category: "unknown" }] },
+    "abort mid-batch accounts for the in-flight and remaining images",
+  );
+  equal(savedAssets.length, 0, "nothing saved after abort");
+  equal(downloadedFiles.length, 0, "nothing downloaded after abort during resolution");
+
+  // 11b. Abort AFTER File.downloadFileAsync completes but before saving:
+  // the post-download abort check stops the save and the temp file is deleted
+  resetMocks();
+  const postDownloadController = new AbortController();
+  mockAfterDownload = () => postDownloadController.abort();
+  const postDownloadAbortResult = await saveListingImagesToLibrary(
+    ["https://api.test/items/1/image/0", "file:///local/2.jpg"],
+    { signal: postDownloadController.signal },
+  );
+  equal(
+    postDownloadAbortResult,
+    { total: 2, saved: 0, failures: [{ index: 0, category: "unknown" }, { index: 1, category: "unknown" }] },
+    "abort after download counts the downloaded photo and the rest as failures",
+  );
+  equal(downloadedFiles.length, 1, "the in-flight photo was downloaded before the abort");
+  equal(savedAssets.length, 0, "post-download abort stops the save");
+  equal(deletedFiles, [downloadedFiles[0].dest], "temp file deleted after post-download abort");
+
+  // 12. Alert result formatting tests
   equal(
     formatImageDownloadResult({ total: 2, saved: 2, failures: [] }),
     { title: "Saved", message: "Saved 2 photos to your camera roll." },
     "all-success result reports the exact saved count",
+  );
+  equal(
+    formatImageDownloadResult({ total: 1, saved: 1, failures: [] }),
+    { title: "Saved", message: "Saved 1 photo to your camera roll." },
+    "single success uses singular wording",
   );
   equal(
     formatImageDownloadResult({
@@ -218,7 +275,52 @@ async function runTests() {
       failures: [{ index: 1, category: "download" }, { index: 2, category: "authentication" }],
     }),
     { title: "Partially saved", message: "Saved 1 of 3 photos. Some photos could not be downloaded." },
-    "partial result reports saved and failed counts",
+    "partial download/auth result keeps the download message",
+  );
+  equal(
+    formatImageDownloadResult({
+      total: 3,
+      saved: 1,
+      failures: [{ index: 1, category: "media_library" }, { index: 2, category: "media_library" }],
+    }),
+    {
+      title: "Partially saved",
+      message:
+        "Saved 1 of 3 photos. ListFlick couldn't add the rest to your library. Check that Photos access is allowed for ListFlick in Settings, then try again.",
+    },
+    "partial media_library result points to Settings, not the network",
+  );
+  equal(
+    formatImageDownloadResult({
+      total: 3,
+      saved: 1,
+      failures: [{ index: 1, category: "download" }, { index: 2, category: "media_library" }],
+    }),
+    {
+      title: "Partially saved",
+      message: "Saved 1 of 3 photos. Some photos could not be downloaded or added to your library.",
+    },
+    "partial mixed result names both causes",
+  );
+  equal(
+    formatImageDownloadResult({
+      total: 2,
+      saved: 0,
+      failures: [{ index: 0, category: "media_library" }, { index: 1, category: "media_library" }],
+    }),
+    {
+      title: "Photos not saved",
+      message:
+        "ListFlick couldn't add the photos to your library. Check that Photos access is allowed for ListFlick in Settings, then try again.",
+    },
+    "all-media_library failure points to Settings",
+  );
+  equal(
+    /connection/i.test(
+      formatImageDownloadResult({ total: 1, saved: 0, failures: [{ index: 0, category: "media_library" }] }).message,
+    ),
+    false,
+    "media_library failure never mentions the connection",
   );
   equal(
     formatImageDownloadResult({
@@ -227,10 +329,86 @@ async function runTests() {
       failures: [{ index: 0, category: "unsupported" }, { index: 1, category: "download" }],
     }),
     { title: "Photos not saved", message: "No photos could be saved. Check your connection and try again." },
-    "zero-save result never reports success",
+    "zero-save download result keeps the connection message",
+  );
+  equal(
+    formatImageDownloadResult({
+      total: 2,
+      saved: 0,
+      failures: [{ index: 0, category: "authentication" }, { index: 1, category: "download" }],
+    }),
+    { title: "Photos not saved", message: "No photos could be saved. Check your connection and try again." },
+    "zero-save authentication result keeps the connection message",
+  );
+  equal(
+    formatImageDownloadResult({
+      total: 2,
+      saved: 0,
+      failures: [{ index: 0, category: "download" }, { index: 1, category: "media_library" }],
+    }),
+    {
+      title: "Photos not saved",
+      message:
+        "No photos could be saved. Some could not be downloaded and others couldn't be added to your library. Check your connection and that Photos access is allowed for ListFlick in Settings, then try again.",
+    },
+    "zero-save mixed result names both causes",
+  );
+  const SETTINGS_ONLY =
+    "ListFlick couldn't add the photos to your library. Check that Photos access is allowed for ListFlick in Settings, then try again.";
+  equal(
+    formatImageDownloadResult({
+      total: 2,
+      saved: 0,
+      failures: [{ index: 0, category: "media_library" }, { index: 1, category: "unsupported" }],
+    }),
+    { title: "Photos not saved", message: SETTINGS_ONLY },
+    "zero-save media_library + unsupported uses the Settings message, not the connection",
+  );
+  equal(
+    formatImageDownloadResult({
+      total: 2,
+      saved: 0,
+      failures: [{ index: 0, category: "media_library" }, { index: 1, category: "unknown" }],
+    }),
+    { title: "Photos not saved", message: SETTINGS_ONLY },
+    "zero-save media_library + unknown uses the Settings message, not the connection",
+  );
+  equal(
+    formatImageDownloadResult({
+      total: 2,
+      saved: 0,
+      failures: [{ index: 0, category: "unsupported" }, { index: 1, category: "unknown" }],
+    }),
+    { title: "Photos not saved", message: "No photos could be saved. Try again." },
+    "zero-save unsupported/unknown only blames neither network nor library",
+  );
+  equal(
+    formatImageDownloadResult({
+      total: 3,
+      saved: 1,
+      failures: [{ index: 1, category: "media_library" }, { index: 2, category: "unsupported" }],
+    }),
+    {
+      title: "Partially saved",
+      message:
+        "Saved 1 of 3 photos. ListFlick couldn't add some photos to your library. Check that Photos access is allowed for ListFlick in Settings, then try again.",
+    },
+    "partial media_library + unsupported points to Settings, not the network",
+  );
+  equal(
+    formatImageDownloadResult({
+      total: 3,
+      saved: 1,
+      failures: [{ index: 1, category: "unsupported" }, { index: 2, category: "unknown" }],
+    }),
+    { title: "Partially saved", message: "Saved 1 of 3 photos. Some photos could not be saved." },
+    "partial unsupported/unknown only blames neither network nor library",
   );
 
   console.log("Image download tests passed.");
 }
 
-void runTests();
+runTests().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

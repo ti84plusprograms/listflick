@@ -18,7 +18,6 @@ const firebaseConfig = source("../../firebase.json");
 const firebaseRcExample = source("../../.firebaserc.example");
 const androidExample = source("../config/google-services.json.example");
 const iosExample = source("../config/GoogleService-Info.plist.example");
-const nativeIosInfo = source("../ios/ListingAssistant/Info.plist");
 
 if (eas.build.preview.env?.EXPO_PUBLIC_API_URL || eas.build.production.env?.EXPO_PUBLIC_API_URL) {
   throw new Error("Preview and production builds must not default to an owner-hosted backend");
@@ -53,6 +52,8 @@ for (const ignored of [
   "mobile/config/GoogleService-Info.plist",
   "mobile/android/app/google-services.json",
   "mobile/ios/ListingAssistant/GoogleService-Info.plist",
+  "mobile/ios/",
+  "mobile/android/",
 ]) {
   if (!gitignore.includes(ignored)) throw new Error(`Public config must ignore ${ignored}`);
 }
@@ -83,7 +84,6 @@ const publicRuntimeConfiguration = [
   firebaseRcExample,
   androidExample,
   iosExample,
-  nativeIosInfo,
 ].join("\n");
 for (const forbiddenPattern of [/https:\/\/[^\s"']+\.onrender\.com/i, /AIza[\w-]+/, /\b\d{10,}-[\w-]+\.apps\.googleusercontent\.com/]) {
   if (forbiddenPattern.test(publicRuntimeConfiguration)) {

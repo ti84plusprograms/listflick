@@ -28,6 +28,8 @@ for (const [source, expected] of [
   [processing, "getAnalysisJobStatus(operation.itemId!)"],
   [processing, 'job.status === "retryable_failed"'],
   [processing, "clearPendingAnalysisOperation(operation.operationId)"],
+  [processing, "assertPendingPhotosAvailable(uris, localPhotoExists)"],
+  [storage, "rebasePendingAnalysisOperation(operation, Paths.document.uri)"],
   [storage, "scopedStorageKey(PENDING_ANALYSIS_KEY, userId)"],
   [storage, "deletePendingAnalysisImages"],
   [storage, "clearPendingAnalysisOperationForItem"],
@@ -46,6 +48,12 @@ for (const [source, expected] of [
   if (!source.includes(expected)) {
     throw new Error(`Resumable analysis wiring is missing ${JSON.stringify(expected)}`);
   }
+}
+
+const photoCheckIndex = processing.indexOf("assertPendingPhotosAvailable(uris, localPhotoExists)");
+const uploadIndex = processing.indexOf("uploadImages(uris, stableOperationId)");
+if (photoCheckIndex === -1 || uploadIndex === -1 || photoCheckIndex > uploadIndex) {
+  throw new Error("Processing must check local photos exist before uploading them");
 }
 
 if (processing.includes("analyzeItem(uploadResult.item_id)")) {

@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { Alert, Animated, Easing, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { File } from "expo-file-system";
 
 import {
   ApiError,
@@ -23,7 +24,7 @@ import {
 import { useAuth } from "../state/AuthContext";
 import { useListingWorkspaceActions } from "../state/ListingWorkspaceContext";
 import { userProfileDefaultsFromAuth } from "../utils/userProfile";
-import { updatePendingAnalysisOperation } from "../utils/pendingAnalysis";
+import { assertPendingPhotosAvailable, updatePendingAnalysisOperation } from "../utils/pendingAnalysis";
 import { ListFlickMark } from "../components/brand/ListFlickMark";
 import {
   showAIKeyRequiredPrompt,
@@ -35,6 +36,15 @@ const POLL_INTERVAL_MS = 2000;
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function localPhotoExists(uri: string): boolean {
+  try {
+    return new File(uri).exists;
+  } catch {
+    // If the URI cannot be inspected, let the upload report its own error.
+    return true;
+  }
 }
 
 async function promptForAnalysisCredentialFailure(errorCode?: string | null): Promise<string | null> {
@@ -113,6 +123,7 @@ export default function ProcessingScreen() {
         };
 
         const uploadOperation = async () => {
+          assertPendingPhotosAvailable(uris, localPhotoExists);
           setStatusText("Uploading your photos…");
           await persist({ phase: "uploading", lastErrorCode: undefined });
           const uploadResult = await uploadImages(uris, stableOperationId);

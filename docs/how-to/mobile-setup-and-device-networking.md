@@ -1,7 +1,11 @@
 # Set up the mobile app and device networking
 
 For a simulator, set `EXPO_PUBLIC_API_URL=http://localhost:8000`, then run a
-development build with `npx expo run:ios` or `npx expo run:android`.
+development build with `npx expo run:ios` or `npx expo run:android`. The native
+`ios/` and `android/` folders are generated and not committed: copy the Firebase
+files into `mobile/config/` first; `npx expo run:ios` runs prebuild if the
+folders are missing. After changing `app.json`, `app.config.js` or a plugin in
+`mobile/plugins/`, run `npx expo prebuild --clean`.
 
 For a physical device:
 
@@ -10,6 +14,8 @@ For a physical device:
 3. Ensure the phone and Mac are on the same network.
 4. Allow Local Network access for the iOS app.
 5. Install or rebuild the development client.
+   To sign it for the device, set `APPLE_TEAM_ID` to your Apple team ID before
+   `npx expo prebuild --clean` or `npx expo run:ios --device`.
 
 The phone must reach both Metro and the backend. Expo's `--tunnel` option
 addresses Metro connectivity only; it does not expose port 8000.

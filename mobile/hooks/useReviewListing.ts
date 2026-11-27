@@ -162,7 +162,7 @@ export function useReviewListing() {
         Alert.alert("Not supported", "Saving photos is not supported on web.");
         return;
       }
-      const MediaLibrary = await import("expo-media-library");
+      const MediaLibrary = await import("expo-media-library/legacy");
       const { status } = await MediaLibrary.requestPermissionsAsync(true, ["photo"]);
       if (status !== "granted") {
         Alert.alert("Permission needed", "We need access to your photos to save them.");

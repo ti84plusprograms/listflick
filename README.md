@@ -67,7 +67,11 @@ make mobile
 ```
 
 The mobile app uses native Firebase packages, so use an Expo Development Build
-(`npx expo run:ios` or `npx expo run:android`), not Expo Go. Sign in before
+(`npx expo run:ios` or `npx expo run:android`), not Expo Go. `mobile/ios` and
+`mobile/android` are generated, not committed: copy your Firebase files into
+`mobile/config/` first, and `npx expo run:ios` runs prebuild when the folders
+are missing. After changing `app.json`, `app.config.js` or `mobile/plugins/`,
+run `npx expo prebuild --clean`. Sign in before
 using protected item and image routes.
 
 Run validation with:

@@ -92,7 +92,7 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
   },
   guideOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
