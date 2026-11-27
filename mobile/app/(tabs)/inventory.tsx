@@ -1,5 +1,5 @@
 import { Link, router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -20,7 +20,13 @@ import {
   restoreRecentlyDeletedListing,
 } from "../../services/storage";
 import type { SavedListing } from "../../types/listing";
-import { theme } from "../../constants/theme";
+import { theme, themedStyles } from "../../constants/theme";
+import { filterInventoryListings, statusLabel } from "../../utils/listingReadiness";
+import {
+  getInventoryFilter,
+  setInventoryFilter,
+  subscribeInventoryFilter,
+} from "../../state/inventoryFilter";
 
 function formatPrice(item: SavedListing): string {
   if (typeof item.activePrice === "number" && item.activePrice > 0) return `$${item.activePrice}`;
@@ -37,6 +43,9 @@ function thumbnailUri(item: SavedListing): string | null {
 export default function InventoryScreen() {
   const [listings, setListings] = useState<SavedListing[]>([]);
   const [hasRecentlyDeleted, setHasRecentlyDeleted] = useState(false);
+  const [filter, setFilter] = useState(getInventoryFilter);
+
+  useEffect(() => subscribeInventoryFilter(setFilter), []);
 
   useFocusEffect(
     useCallback(() => {
@@ -91,7 +100,18 @@ export default function InventoryScreen() {
     ]);
   };
 
-  const recentlyDeletedLink = hasRecentlyDeleted ? (
+  const visibleListings = filterInventoryListings(listings, filter);
+
+  const filterBar = filter === "attention" ? (
+    <View style={styles.filterBar}>
+      <Text style={styles.filterText}>Showing listings that need attention</Text>
+      <Pressable onPress={() => setInventoryFilter(null)} accessibilityRole="button" hitSlop={8}>
+        <Text style={styles.filterAction}>Show all</Text>
+      </Pressable>
+    </View>
+  ) : null;
+
+  const recentlyDeletedLink = hasRecentlyDeleted && !filter ? (
     <Pressable
       style={styles.recentlyDeletedLink}
       onPress={() => router.push("/recently-deleted" as never)}
@@ -103,6 +123,19 @@ export default function InventoryScreen() {
       <Ionicons name="chevron-forward" size={16} color={theme.colors.textTertiary} />
     </Pressable>
   ) : null;
+
+  if (filter === "attention" && visibleListings.length === 0) {
+    return (
+      <View style={styles.container}>
+        {filterBar}
+        <View style={styles.empty}>
+          <Ionicons name="checkmark-circle-outline" size={48} color={theme.colors.textTertiary} style={styles.emptyIcon} />
+          <Text style={styles.emptyTitle}>All caught up</Text>
+          <Text style={styles.emptyText}>No listings need attention.</Text>
+        </View>
+      </View>
+    );
+  }
 
   if (listings.length === 0) {
     return (
@@ -123,24 +156,24 @@ export default function InventoryScreen() {
 
   return (
     <View style={styles.container} testID="inventory-screen">
+      {filterBar}
       {recentlyDeletedLink}
       <FlatList
         testID="inventory-list"
-        data={listings}
+        data={visibleListings}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => {
           const thumb = thumbnailUri(item);
           const title = item.title || "Untitled";
           const price = formatPrice(item);
-          const statusLabel = item.status === "saved" ? "Ready to list" : "Draft";
           return (
             <View style={styles.card}>
               <Pressable
                 onPress={() => openListing(item)}
                 testID="inventory-open-listing"
                 accessibilityRole="button"
-                accessibilityLabel={`Open ${title} listing, ${price}, ${statusLabel}`}
+                accessibilityLabel={`Open ${title} listing, ${price}, ${statusLabel(item)}`}
                 accessibilityHint="Opens listing details"
               >
                 <View style={styles.cardRow}>
@@ -169,7 +202,7 @@ export default function InventoryScreen() {
 
                     <View style={styles.cardFooter}>
                       <View style={styles.statusBadge}>
-                        <Text style={styles.statusText}>{statusLabel}</Text>
+                        <Text style={styles.statusText}>{statusLabel(item)}</Text>
                       </View>
                     </View>
                   </View>
@@ -192,7 +225,7 @@ export default function InventoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -271,6 +304,28 @@ const styles = StyleSheet.create({
     right: 12,
     bottom: 12,
   },
+  filterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginHorizontal: theme.spacing.screenPadding,
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: theme.radius.button,
+    backgroundColor: theme.colors.surface,
+  },
+  filterText: {
+    flex: 1,
+    fontSize: 13,
+    color: theme.colors.textSecondary,
+  },
+  filterAction: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.textPrimary,
+  },
   recentlyDeletedLink: {
     flexDirection: "row",
     alignItems: "center",
@@ -325,4 +380,4 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16
   },
-});
+}));

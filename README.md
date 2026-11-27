@@ -98,7 +98,7 @@ repository command reference.
 - FastAPI verifies Firebase ID tokens and scopes item operations to the UID.
 - PostgreSQL stores item records, idempotency claims, listing state, and
   resumable analysis leases.
-- Gemini or Groq provides request-inline analysis and listing generation.
+- Gemini, Groq, or Claude provides request-inline analysis and listing generation.
 - Private Supabase Storage stores deployed images; local development can use
   the `backend/uploads/` fallback.
 - Render hosts the backend deployment.
@@ -111,7 +111,7 @@ See [System architecture](docs/reference/architecture.md) and
 ## AI provider keys
 
 BYOK is recommended for public deployments. When server-key fallback is off,
-new users begin with no selected provider and must choose Gemini or Groq before
+new users begin with no selected provider and must choose Gemini, Groq, or Claude before
 using AI. They then manage only that provider's key from the focused API-key
 row. Keys stay in device secure storage, travel only on requests that execute
 that provider, and are not persisted by ListFlick. Settings labels a nonblank

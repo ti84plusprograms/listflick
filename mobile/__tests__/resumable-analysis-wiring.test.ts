@@ -20,8 +20,7 @@ for (const [source, expected] of [
   [camera, "imageUris: durableImageUris"],
   [camera, "if (operationId) await deletePendingAnalysisImages(operationId)"],
   [camera, "operationId: operation.operationId"],
-  [camera, "const pending = await getPendingAnalysisOperation()"],
-  [processing, "getPendingAnalysisOperation()"],
+  [processing, "getPendingAnalysisOperation(operationId)"],
   [processing, "const stableOperationId = operation.operationId"],
   [processing, "uploadImages(uris, stableOperationId)"],
   [processing, "getItem(operation.itemId!)"],
@@ -33,7 +32,7 @@ for (const [source, expected] of [
   [storage, "scopedStorageKey(PENDING_ANALYSIS_KEY, userId)"],
   [storage, "deletePendingAnalysisImages"],
   [storage, "clearPendingAnalysisOperationForItem"],
-  [storage, "if (pendingOperation) await deletePendingAnalysisImages(pendingOperation.operationId)"],
+  [storage, "for (const pendingOperation of pendingOperations) await deletePendingAnalysisImages(pendingOperation.operationId)"],
   [review, "await clearPendingAnalysisOperationForItem(listing.itemId)"],
   [review, "hydrateWorkspace(savedListingToWorkspace(saved))"],
   [review, "await discardPendingItem(listing.itemId!)"],
@@ -42,8 +41,9 @@ for (const [source, expected] of [
   [reviewHook, "resolveImageUri(uri, listing.itemId, index)"],
   [pendingFiles, "new Directory(Paths.document"],
   [pendingFiles, "source.copy(destination)"],
-  [home, "Resume listing"],
-  [home, "!pendingOperation &&"],
+  [home, "Stopped before writing. Tap to resume"],
+  [home, 'pathname: "/processing"'],
+  [home, "params: { operationId: operation.operationId }"],
 ] as const) {
   if (!source.includes(expected)) {
     throw new Error(`Resumable analysis wiring is missing ${JSON.stringify(expected)}`);

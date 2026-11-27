@@ -1,7 +1,9 @@
+import asyncio
+import json
 import logging
 import time
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile
 
 from app.models.database import (
     create_item,
@@ -15,11 +17,13 @@ from app.models.database import (
     get_item,
     get_analysis_job,
     item_image_paths,
+    item_video_paths,
     fail_analysis_job,
     ensure_succeeded_analysis_job,
     update_item_analysis,
     update_item_images,
     update_item_notion_sync,
+    update_item_video,
     list_expired_trashed_items,
     list_expired_pending_items,
     restore_item,
@@ -32,6 +36,9 @@ from app.schemas.listing import (
     ImproveListingRequest,
     ImproveListingResponse,
     ItemResponse,
+    ItemVideoResponse,
+    ListingAnswersRequest,
+    ListingAnswersResponse,
     SaveListingRequest,
     SaveListingResponse,
     NotionSyncRequest,
@@ -41,6 +48,8 @@ from app.schemas.listing import (
 from app.services.ai_credentials import AI_CREDENTIAL_HEADER, AI_PROVIDER_HEADER
 from app.services.analyze_service import (
     analyze_item_record,
+    answer_listing_record,
+    answers_need_ai,
     ensure_ai_provider_configured,
     improve_listing_record,
     item_response_from_record,
@@ -64,6 +73,17 @@ from app.services.item_api_service import (
 from app.services.notion_service import notion_service
 from app.services.resumable_analysis import analysis_job_status, execute_resumable_analysis
 from app.services.storage import storage_service
+from app.services.video_frames import normalize_frame
+from app.services.video_service import (
+    cover_frame,
+    item_video_payload,
+    read_video_upload,
+    remove_item_video,
+    select_upload_frames,
+    signed_video_url,
+    store_item_video,
+    video_file_response,
+)
 
 router = APIRouter(prefix="/api/items", tags=["items"])
 logger = logging.getLogger("uvicorn.error")
@@ -103,6 +123,149 @@ async def upload_images(
         client_request_id=idempotency_key,
         claim_upload=claim_item_upload,
         complete_upload=complete_item_upload,
+    )
+
+
+def _valid_idempotency_key(idempotency_key: str | None) -> str | None:
+    if not isinstance(idempotency_key, str):
+        return None
+    if not 8 <= len(idempotency_key) <= 128 or not all(
+        character.isalnum() or character in "._:-" for character in idempotency_key
+    ):
+        raise HTTPException(status_code=400, detail="Invalid Idempotency-Key")
+    return idempotency_key
+
+
+@router.post("/upload-video", response_model=ItemVideoResponse)
+async def upload_video_listing(
+    file: UploadFile = File(...),
+    frames: list[UploadFile] = File(default=[]),
+    frame_times: str | None = Form(default=None),
+    duration: float | None = Form(default=None),
+    uid: str = Depends(get_current_user),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """Start a listing from a video alone. The sharpest frame becomes the cover photo."""
+    idempotency_key = _valid_idempotency_key(idempotency_key)
+    logger.info("POST /api/items/upload-video called by uid=%s", uid)
+    upload = await read_video_upload(file, frames, frame_times=frame_times, duration=duration)
+    selected = await asyncio.to_thread(select_upload_frames, upload)
+    cover = cover_frame(selected)
+    if cover is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Couldn't read that video. Try a different video, or add a few photos.",
+        )
+
+    if idempotency_key:
+        item, created = await claim_item_upload(uid, idempotency_key, upload.fingerprint)
+        if item.get("upload_fingerprint") != upload.fingerprint:
+            raise HTTPException(status_code=409, detail="Idempotency-Key was already used with a different video")
+        if not created and item.get("status") != "uploading":
+            paths = item_image_paths(item)
+            return ItemVideoResponse(
+                item_id=item["id"],
+                video=item_video_payload(item),
+                image_url=f"/api/items/{item['id']}/image",
+                image_urls=[f"/api/items/{item['id']}/image/{index}" for index in range(len(paths))],
+            )
+    else:
+        item = await create_item("", uid)
+    item_id = item["id"]
+
+    try:
+        cover_paths = await storage_service.stage_pending(
+            item_id,
+            [await asyncio.to_thread(normalize_frame, cover.candidate.content)],
+            replace_existing=idempotency_key is not None,
+        )
+    except Exception as exc:
+        logger.error("Could not stage the video cover for %s: %s", item_id, exc, exc_info=True)
+        if not idempotency_key:
+            await delete_item(item_id, uid)
+        raise HTTPException(status_code=502, detail="Could not store the video cover") from exc
+
+    try:
+        record = await store_item_video(
+            item,
+            uid,
+            upload,
+            storage=storage_service,
+            update_video=update_item_video,
+            selected=selected,
+            cover=cover,
+            cover_path=cover_paths[0],
+        )
+        if idempotency_key:
+            await complete_item_upload(item_id, uid, cover_paths, [])
+        else:
+            await update_item_images(item_id, uid, cover_paths, "pending")
+    except Exception:
+        if not idempotency_key:
+            try:
+                await storage_service.delete_pending(cover_paths)
+                await delete_item(item_id, uid)
+            except Exception:
+                logger.warning("Could not compensate failed video listing upload %s", item_id, exc_info=True)
+        raise
+
+    refreshed = await get_item(item_id, uid) or {**item, "video_json": json.dumps(record)}
+    return ItemVideoResponse(
+        item_id=item_id,
+        video=item_video_payload(refreshed),
+        image_url=f"/api/items/{item_id}/image",
+        image_urls=[f"/api/items/{item_id}/image/0"],
+    )
+
+
+@router.put("/{item_id}/video", response_model=ItemVideoResponse)
+async def upload_item_video(
+    item_id: str,
+    file: UploadFile = File(...),
+    frames: list[UploadFile] = File(default=[]),
+    frame_times: str | None = Form(default=None),
+    duration: float | None = Form(default=None),
+    uid: str = Depends(get_current_user),
+):
+    """Add or replace the listing's one video (a second video replaces the first)."""
+    logger.info("PUT /api/items/%s/video called by uid=%s", item_id, uid)
+    item = await require_owned_item(item_id, uid, get_item_record=get_item)
+    upload = await read_video_upload(file, frames, frame_times=frame_times, duration=duration)
+    await store_item_video(item, uid, upload, storage=storage_service, update_video=update_item_video)
+    refreshed = await require_owned_item(item_id, uid, get_item_record=get_item)
+    paths = item_image_paths(refreshed)
+    return ItemVideoResponse(
+        item_id=item_id,
+        video=item_video_payload(refreshed),
+        image_url=f"/api/items/{item_id}/image",
+        image_urls=[f"/api/items/{item_id}/image/{index}" for index in range(len(paths))],
+    )
+
+
+@router.delete("/{item_id}/video")
+async def delete_item_video(item_id: str, uid: str = Depends(get_current_user)):
+    logger.info("DELETE /api/items/%s/video called by uid=%s", item_id, uid)
+    item = await require_owned_item(item_id, uid, get_item_record=get_item)
+    await remove_item_video(item, uid, storage=storage_service, update_video=update_item_video)
+    return {"item_id": item_id, "video": None}
+
+
+@router.get("/{item_id}/video/{video_id}/url")
+async def get_item_video_url(item_id: str, video_id: str, uid: str = Depends(get_current_user)):
+    """Return a short-lived private Storage URL for the video after checking ownership."""
+    item = await require_owned_item(item_id, uid, get_item_record=get_item)
+    return await signed_video_url(item, video_id, storage=storage_service)
+
+
+@router.get("/{item_id}/video/{video_id}")
+@router.head("/{item_id}/video/{video_id}")
+async def get_item_video(item_id: str, video_id: str, request: Request, uid: str = Depends(get_current_user)):
+    item = await require_owned_item(item_id, uid, get_item_record=get_item)
+    return await video_file_response(
+        item,
+        video_id,
+        storage=storage_service,
+        range_header=request.headers.get("range"),
     )
 
 
@@ -240,6 +403,54 @@ async def improve_listing(payload: ImproveListingRequest, uid: str = Depends(get
     return response
 
 
+@router.post("/{item_id}/answers", response_model=ListingAnswersResponse)
+async def answer_listing_questions(
+    item_id: str,
+    payload: ListingAnswersRequest,
+    uid: str = Depends(get_current_user),
+    ai_key: str | None = Header(default=None, alias=AI_CREDENTIAL_HEADER),
+    ai_provider: str | None = Header(default=None, alias=AI_PROVIDER_HEADER),
+):
+    """Apply seller answers (or edit-form changes): re-price if needed, revise the description,
+    and clear the answered questions. ``dismiss`` clears every open question without an AI call."""
+    start = time.perf_counter()
+    request_ai = None
+    credential = None
+    if answers_need_ai(payload):
+        request_ai, credential = ensure_ai_provider_configured(ai_key if isinstance(ai_key, str) else None, ai_provider)
+
+    logger.info(
+        "POST /api/items/%s/answers requested (uid=%s, answers=%d, changes=%s, dismiss=%s, provider=%s, credential_source=%s)",
+        item_id,
+        uid,
+        len(payload.answers),
+        bool(payload.changes and payload.changes.has_changes()),
+        payload.dismiss,
+        credential.provider if credential else "none",
+        credential.source if credential else "none",
+    )
+    try:
+        item = await require_owned_item(item_id, uid, get_item_record=get_item)
+    except HTTPException:
+        logger.warning("Listing answers failed: Item %s not found for uid=%s", item_id, uid)
+        raise
+
+    response = await answer_listing_record(
+        item,
+        payload,
+        ai=request_ai,
+        update_analysis=update_item_analysis,
+        storage=storage_service,
+    )
+    logger.info(
+        "Listing answers applied for item_id=%s in %.2fs (repriced=%s)",
+        item_id,
+        time.perf_counter() - start,
+        response.repriced,
+    )
+    return response
+
+
 @router.post("/{item_id}/save", response_model=SaveListingResponse)
 async def save_item_listing(item_id: str, payload: SaveListingRequest, uid: str = Depends(get_current_user)):
     start = time.perf_counter()
@@ -263,6 +474,7 @@ async def save_item_listing(item_id: str, payload: SaveListingRequest, uid: str 
         finish_notion_sync=finish_item_notion_sync,
         notion=notion_service,
         storage=storage_service,
+        update_video=update_item_video,
     )
     logger.info("Saved listing edits for item_id=%s in %.2fs (sync_status=%s)", item_id, time.perf_counter() - start, response.notion_sync.status)
     return response
@@ -349,6 +561,7 @@ async def cleanup_expired_items(uid: str = Depends(get_current_user)):
         await delete_item(item["id"], uid)
         try:
             await storage_service.delete_pending(item_image_paths(item))
+            await storage_service.delete(item_video_paths(item))
         except Exception:
             logger.warning("Expired pending item left orphaned storage item_id=%s", item["id"], exc_info=True)
         pending_purged += 1

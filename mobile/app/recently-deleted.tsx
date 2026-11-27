@@ -11,7 +11,7 @@ import {
   restoreRecentlyDeletedListing,
 } from "../services/storage";
 import type { SavedListing } from "../types/listing";
-import { theme } from "../constants/theme";
+import { theme, themedStyles } from "../constants/theme";
 import { AuthenticatedImage } from "../components/AuthenticatedImage";
 
 function thumbnailUri(item: SavedListing): string | null {
@@ -149,7 +149,7 @@ export default function RecentlyDeletedScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: {
     flexDirection: "row",
@@ -185,4 +185,4 @@ const styles = StyleSheet.create({
   empty: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
   emptyTitle: { color: theme.colors.textPrimary, fontSize: 18, fontWeight: "700", marginTop: 16 },
   emptyText: { color: theme.colors.textSecondary, textAlign: "center", marginTop: 8 },
-});
+}));

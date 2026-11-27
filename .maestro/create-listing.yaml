@@ -92,7 +92,9 @@ tags:
 # Use the normal product UI and native photo picker. The helper contains the
 # platform-specific system selectors; app interactions remain ID/text based.
 - tapOn:
-    id: home-choose-from-library
+    id: home-new-listing
+- tapOn:
+    id: camera-open-library
 - runFlow: helpers/pick-first-photo.yaml
 - assertVisible:
     id: selected-photo-count

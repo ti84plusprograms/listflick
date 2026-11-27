@@ -186,6 +186,67 @@ def item_image_paths(item: dict) -> list[str]:
     return [str(image_path)] if image_path else []
 
 
+def item_video_record(item: dict) -> dict | None:
+    """The listing's video metadata (path, frames, duration), or None when it has no video."""
+    raw = item.get("video_json")
+    if not raw:
+        return None
+    try:
+        video = json.loads(raw) if isinstance(raw, str) else raw
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(video, dict) or not video.get("path"):
+        return None
+    return video
+
+
+def item_video_paths(item: dict) -> list[str]:
+    """Storage paths owned by the video: the file itself and its analysis frames."""
+    video = item_video_record(item)
+    if not video:
+        return []
+    paths = [str(video["path"])]
+    for frame in video.get("frames") or []:
+        if isinstance(frame, dict) and frame.get("path"):
+            paths.append(str(frame["path"]))
+    return list(dict.fromkeys(paths))
+
+
+def item_media_paths(item: dict) -> list[str]:
+    """Every stored object for an item (photos, video and frames), for deletion."""
+    return list(dict.fromkeys([*item_image_paths(item), *item_video_paths(item)]))
+
+
+def item_notion_media(item: dict) -> dict:
+    raw = item.get("notion_media_json")
+    if not raw:
+        return {}
+    try:
+        media = json.loads(raw) if isinstance(raw, str) else raw
+    except json.JSONDecodeError:
+        return {}
+    return media if isinstance(media, dict) else {}
+
+
+async def update_item_video(item_id: str, user_id: str, video: dict | None) -> None:
+    """Set or clear the listing's single video."""
+    now = _now()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE items
+            SET video_json = $1, updated_at = $2
+            WHERE id = $3 AND user_id = $4
+            """,
+            json.dumps(video) if video else None,
+            now,
+            item_id,
+            user_id,
+        )
+    if result != "UPDATE 1":
+        raise LookupError("Item not found for this user")
+
+
 async def get_item(item_id: str, user_id: str) -> dict | None:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -570,8 +631,13 @@ async def finish_item_notion_sync(
     last_error: str | None = None,
     succeeded: bool = False,
     create_ambiguous: bool = False,
+    media: dict | None = None,
 ) -> dict:
-    """Persist a Notion result only when the caller still owns the write lease."""
+    """Persist a Notion result only when the caller still owns the write lease.
+
+    ``media`` records what the sync did with the video (its reusable Notion upload and
+    any warning for the app); ``None`` leaves the stored value unchanged.
+    """
     now = _now()
     last_success_at = now if succeeded else None
     async with pool.acquire() as conn:
@@ -585,6 +651,7 @@ async def finish_item_notion_sync(
                 notion_last_success_at = COALESCE($8, notion_last_success_at),
                 notion_last_error = $9,
                 notion_create_ambiguous = $10,
+                notion_media_json = COALESCE($12, notion_media_json),
                 notion_sync_lease_token = NULL,
                 notion_sync_lease_expires_at = NULL,
                 updated_at = $11
@@ -603,6 +670,7 @@ async def finish_item_notion_sync(
             last_error,
             create_ambiguous,
             now,
+            json.dumps(media) if media is not None else None,
         )
     if not row:
         raise RuntimeError("Notion sync lease is no longer current")

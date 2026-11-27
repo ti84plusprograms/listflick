@@ -231,3 +231,27 @@ async def test_invalid_provider_key_maps_to_safe_error():
     assert exc_info.value.status_code == 502
     assert exc_info.value.detail["code"] == "AI_PROVIDER_CREDENTIAL_INVALID"
     assert exc_info.value.detail["provider"] == "groq"
+
+
+def test_claude_is_a_supported_provider_with_its_own_server_key(monkeypatch):
+    from app.services.ai_credentials import selected_provider
+
+    monkeypatch.setattr(settings, "allow_server_ai_key_fallback", True)
+    monkeypatch.setattr(settings, "anthropic_api_key", "server-claude")
+
+    assert selected_provider(" Claude ") == "claude"
+    resolved = resolve_ai_credential("claude")
+    assert resolved.value == "server-claude"
+    assert resolved.source == "server_fallback"
+    assert resolve_ai_credential("claude", "user-claude").source == "byok"
+
+
+def test_ai_service_uses_claude_client_for_claude_provider():
+    from app.services.ai_service import AIService
+    from app.services.claude_client import ClaudeClient
+
+    service = AIService(provider="claude", api_key="user-claude")
+
+    assert service.provider == "claude"
+    assert isinstance(service._client, ClaudeClient)
+    assert service._client._api_key == "user-claude"

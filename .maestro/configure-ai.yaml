@@ -70,7 +70,9 @@ tags:
 - assertVisible:
     id: home-screen
 - tapOn:
-    id: home-choose-from-library
+    id: home-new-listing
+- tapOn:
+    id: camera-open-library
 - assertVisible: "Groq API key required"
 - assertVisible: "Add API Key"
 - assertNotVisible: "Gemini API key required"

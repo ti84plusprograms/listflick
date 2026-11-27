@@ -2,6 +2,7 @@
 
 import logging
 
+from app.models.database import item_notion_media
 from app.schemas.listing import (
     ChecklistItem,
     GeneratedListing,
@@ -20,6 +21,7 @@ logger = logging.getLogger("uvicorn.error")
 
 def notion_sync_from_item(item: dict, *, reason: str | None = None) -> NotionSyncStatus:
     status = item.get("notion_sync_status") or "not_synced"
+    media_warning = item_notion_media(item).get("warning") if status == "synced" else None
     last_error = item.get("notion_last_error")
     if reason is None:
         reason = item.get("notion_sync_reason")
@@ -35,6 +37,7 @@ def notion_sync_from_item(item: dict, *, reason: str | None = None) -> NotionSyn
         "last_attempt_at": item.get("notion_last_attempt_at"),
         "last_success_at": item.get("notion_last_success_at"),
         "last_error": last_error,
+        "warnings": [media_warning] if isinstance(media_warning, str) and media_warning else [],
     })
 
 
@@ -84,9 +87,13 @@ async def image_feedback_for_paths(
     item_id: str,
     *,
     storage: Storage = storage_service,
+    skip_paths: set[str] | None = None,
 ) -> list[dict]:
+    """Per-photo quality feedback. ``skip_paths`` (a cover taken from the video) get none."""
     feedback_items: list[dict] = []
     for index, raw_path in enumerate(paths):
+        if skip_paths and raw_path in skip_paths:
+            continue
         try:
             asset = await storage.read(raw_path)
             feedback, _ = build_image_quality_feedback(

@@ -3,6 +3,7 @@ import { File, Paths } from "expo-file-system";
 
 import { resolveAuthenticatedImageUri } from "./imageRetrieval";
 import type { ImageDownloadFailure, ImageDownloadResult } from "../utils/imageDownloadResult";
+import { cameraRollItems, videoExtension } from "../utils/listingVideo";
 
 function isLocalUri(uri: string): boolean {
   return uri.startsWith("file://") || uri.startsWith("content://");
@@ -17,8 +18,11 @@ function failureCategory(error: unknown): ImageDownloadFailure["category"] {
   return "download";
 }
 
-function temporaryName(index: number, uri: string): string {
-  const extension = /\.([a-z0-9]+)(?:[?#].*)?$/i.exec(uri)?.[1] ?? "jpg";
+function temporaryName(index: number, uri: string, kind: "photo" | "video" = "photo"): string {
+  // Photos keep their own extension; the camera roll detects a video by its .mp4/.mov name.
+  const extension = kind === "video"
+    ? videoExtension(uri)
+    : /\.([a-z0-9]+)(?:[?#].*)?$/i.exec(uri)?.[1] ?? "jpg";
   return `listflick-download-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.${extension}`;
 }
 
@@ -30,10 +34,31 @@ export async function saveListingImagesToLibrary(
   imageUris: string[],
   options?: SaveListingImagesOptions,
 ): Promise<ImageDownloadResult> {
-  const result: ImageDownloadResult = { total: imageUris.length, saved: 0, failures: [] };
-  for (const [index, sourceUri] of imageUris.entries()) {
+  return saveMediaToLibrary(cameraRollItems(imageUris), options);
+}
+
+/**
+ * Save the listing's photos (cover first) and then its video straight to the camera
+ * roll, one tap, no share sheet. Failure indexes follow the same order, so the video
+ * is index `imageUris.length`.
+ */
+export async function saveListingMediaToLibrary(
+  imageUris: string[],
+  videoUri: string | null | undefined,
+  options?: SaveListingImagesOptions,
+): Promise<ImageDownloadResult> {
+  const result = await saveMediaToLibrary(cameraRollItems(imageUris, videoUri), options);
+  return videoUri ? { ...result, videoIncluded: true } : result;
+}
+
+async function saveMediaToLibrary(
+  items: { uri: string; kind: "photo" | "video" }[],
+  options?: SaveListingImagesOptions,
+): Promise<ImageDownloadResult> {
+  const result: ImageDownloadResult = { total: items.length, saved: 0, failures: [] };
+  for (const [index, { uri: sourceUri, kind }] of items.entries()) {
     if (options?.signal?.aborted) {
-      for (let cancelledIndex = index; cancelledIndex < imageUris.length; cancelledIndex += 1) {
+      for (let cancelledIndex = index; cancelledIndex < items.length; cancelledIndex += 1) {
         result.failures.push({ index: cancelledIndex, category: "unknown" });
       }
       break;
@@ -49,7 +74,7 @@ export async function saveListingImagesToLibrary(
         if (options?.signal?.aborted) {
           throw Object.assign(new Error("Operation aborted"), { category: "unknown" });
         }
-        temporaryFile = new File(Paths.cache, temporaryName(index, resolved.uri));
+        temporaryFile = new File(Paths.cache, temporaryName(index, resolved.uri, kind));
         await File.downloadFileAsync(resolved.uri, temporaryFile, {
           headers: resolved.headers,
           idempotent: true,

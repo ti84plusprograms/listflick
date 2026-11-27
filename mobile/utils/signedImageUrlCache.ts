@@ -38,11 +38,11 @@ export function clearSignedImageUrlCacheForUri(uid: string, uri: string): void {
 }
 
 export function clearSignedImageUrlCacheForItem(itemId: string): void {
-  const marker = `/api/items/${itemId}/image`;
+  const markers = [`/api/items/${itemId}/image`, `/api/items/${itemId}/video`];
   for (const key of entries.keys()) {
-    if (key.includes(marker)) entries.delete(key);
+    if (markers.some((marker) => key.includes(marker))) entries.delete(key);
   }
   for (const key of requests.keys()) {
-    if (key.includes(marker)) requests.delete(key);
+    if (markers.some((marker) => key.includes(marker))) requests.delete(key);
   }
 }

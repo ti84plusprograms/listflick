@@ -9,12 +9,21 @@ import { scopedStorageKey } from "../utils/storageScope";
 import {
   isPendingAnalysisExpired,
   parsePendingAnalysisOperation,
+  parsePendingAnalysisOperations,
+  removePendingAnalysisOperation,
+  upsertPendingAnalysisOperation,
   rebasePendingAnalysisOperation,
   type PendingAnalysisOperation,
 } from "../utils/pendingAnalysis";
 import { deletePendingAnalysisImages } from "../utils/pendingAnalysisFiles";
 import { clearProviderApiKeys } from "./aiCredentials";
-import type { AIProvider } from "./aiCredentials";
+import type { ColorScheme } from "../constants/theme";
+import {
+  parseColorScheme,
+  parseNotificationPreferences,
+  type NotificationPreferences,
+} from "../utils/preferences";
+import { isAIProvider, type AIProvider } from "./aiCredentials";
 
 const STORAGE_KEY = "@listings";
 const DRAFT_DESCRIPTION_PREFIX = "@draft_description:";
@@ -25,8 +34,12 @@ const LISTING_DEFAULTS_KEY = "@listing_defaults";
 const RECENTLY_DELETED_KEY = "@recently_deleted_listings";
 const RETENTION_DAYS_KEY = "@recently_deleted_retention_days";
 const DEVELOPER_NOTION_MODE_KEY = "@developer_notion_sync_enabled";
-const PENDING_ANALYSIS_KEY = "@pending_analysis";
+/** Before multiple drafts: one unfinished listing at most. Read once and carried over. */
+const LEGACY_PENDING_ANALYSIS_KEY = "@pending_analysis";
+const PENDING_ANALYSIS_KEY = "@pending_analyses";
 const AI_PROVIDER_PREFERENCE_KEY = "@ai_provider_preference";
+const APPEARANCE_KEY = "@appearance";
+const NOTIFICATION_PREFERENCES_KEY = "@notification_preferences";
 const LEGACY_LISTINGS_MIGRATION_OWNER_KEY = "@listings_legacy_migration_owner";
 export const DEFAULT_RETENTION_DAYS = 30 as const;
 export const RETENTION_OPTIONS = [7, 30, 90] as const;
@@ -49,14 +62,14 @@ function scopedKey(key: string): string {
 
 export async function getSelectedAIProvider(): Promise<AIProvider | null> {
   const value = await AsyncStorage.getItem(scopedKey(AI_PROVIDER_PREFERENCE_KEY));
-  return value === "gemini" || value === "groq" ? value : null;
+  return isAIProvider(value) ? value : null;
 }
 
 export async function getEffectiveAIProvider(health?: { allow_server_ai_key_fallback?: boolean; ai_provider?: string } | null): Promise<AIProvider | null> {
   const selected = await getSelectedAIProvider();
   if (selected) return selected;
-  if (health?.allow_server_ai_key_fallback && (health.ai_provider === "gemini" || health.ai_provider === "groq")) {
-    return health.ai_provider as AIProvider;
+  if (health?.allow_server_ai_key_fallback && isAIProvider(health.ai_provider)) {
+    return health.ai_provider;
   }
   return null;
 }
@@ -205,6 +218,23 @@ export async function saveRecentlyDeletedRetentionDays(days: number): Promise<vo
   await AsyncStorage.setItem(RETENTION_DAYS_KEY, String(days));
 }
 
+/* Device preferences: shared by every account on this phone. */
+export async function getAppearance(): Promise<ColorScheme> {
+  return parseColorScheme(await AsyncStorage.getItem(APPEARANCE_KEY));
+}
+
+export async function saveAppearance(scheme: ColorScheme): Promise<void> {
+  await AsyncStorage.setItem(APPEARANCE_KEY, scheme);
+}
+
+export async function getNotificationPreferences(): Promise<NotificationPreferences> {
+  return parseNotificationPreferences(await AsyncStorage.getItem(NOTIFICATION_PREFERENCES_KEY));
+}
+
+export async function saveNotificationPreferences(prefs: NotificationPreferences): Promise<void> {
+  await AsyncStorage.setItem(NOTIFICATION_PREFERENCES_KEY, JSON.stringify(prefs));
+}
+
 export async function getDeveloperNotionMode(): Promise<boolean> {
   const raw = await AsyncStorage.getItem(DEVELOPER_NOTION_MODE_KEY);
   if (raw === null) return DEFAULT_DEVELOPER_NOTION_MODE;
@@ -300,41 +330,58 @@ export async function saveListingDefaults(defaults: ListingDefaults): Promise<vo
   await AsyncStorage.setItem(LISTING_DEFAULTS_KEY, JSON.stringify(defaults));
 }
 
-export async function getPendingAnalysisOperation(): Promise<PendingAnalysisOperation | null> {
+/** Every unfinished listing for this account, newest first, including one saved before multiple drafts. */
+async function readPendingAnalysisOperations(): Promise<PendingAnalysisOperation[]> {
   const key = scopedKey(PENDING_ANALYSIS_KEY);
-  const operation = parsePendingAnalysisOperation(await AsyncStorage.getItem(key));
-  if (!operation || isPendingAnalysisExpired(operation)) {
-    if (operation) {
-      await deletePendingAnalysisImages(operation.operationId);
-      await AsyncStorage.removeItem(key);
+  let operations = parsePendingAnalysisOperations(await AsyncStorage.getItem(key));
+  const legacyKey = scopedKey(LEGACY_PENDING_ANALYSIS_KEY);
+  const legacy = parsePendingAnalysisOperation(await AsyncStorage.getItem(legacyKey));
+  if (legacy) {
+    operations = upsertPendingAnalysisOperation(operations, legacy);
+    await AsyncStorage.setItem(key, JSON.stringify(operations));
+  }
+  if (legacy || (await AsyncStorage.getItem(legacyKey)) !== null) await AsyncStorage.removeItem(legacyKey);
+  return operations;
+}
+
+async function writePendingAnalysisOperations(operations: PendingAnalysisOperation[]): Promise<void> {
+  const key = scopedKey(PENDING_ANALYSIS_KEY);
+  if (operations.length === 0) await AsyncStorage.removeItem(key);
+  else await AsyncStorage.setItem(key, JSON.stringify(operations));
+}
+
+export async function getPendingAnalysisOperations(): Promise<PendingAnalysisOperation[]> {
+  const operations = await readPendingAnalysisOperations();
+  const live = operations.filter((operation) => !isPendingAnalysisExpired(operation));
+  if (live.length !== operations.length) {
+    for (const expired of operations.filter((operation) => isPendingAnalysisExpired(operation))) {
+      await deletePendingAnalysisImages(expired.operationId);
     }
-    return null;
+    await writePendingAnalysisOperations(live);
   }
   // Stored photo URIs may name an old app container after an update or reinstall.
-  return rebasePendingAnalysisOperation(operation, Paths.document.uri);
+  return live.map((operation) => rebasePendingAnalysisOperation(operation, Paths.document.uri));
+}
+
+/** One unfinished listing by id, or the newest when no id is given. */
+export async function getPendingAnalysisOperation(operationId?: string): Promise<PendingAnalysisOperation | null> {
+  const operations = await getPendingAnalysisOperations();
+  if (!operationId) return operations[0] ?? null;
+  return operations.find((operation) => operation.operationId === operationId) ?? null;
 }
 
 export async function savePendingAnalysisOperation(operation: PendingAnalysisOperation): Promise<void> {
-  await AsyncStorage.setItem(scopedKey(PENDING_ANALYSIS_KEY), JSON.stringify(operation));
+  await writePendingAnalysisOperations(upsertPendingAnalysisOperation(await readPendingAnalysisOperations(), operation));
 }
 
-export async function clearPendingAnalysisOperation(operationId?: string): Promise<void> {
-  const key = scopedKey(PENDING_ANALYSIS_KEY);
-  const current = parsePendingAnalysisOperation(await AsyncStorage.getItem(key));
-  if (operationId) {
-    if (current && current.operationId !== operationId) return;
-  }
-  const cleanupOperationId = current?.operationId ?? operationId;
-  await AsyncStorage.removeItem(key);
-  if (cleanupOperationId) await deletePendingAnalysisImages(cleanupOperationId);
+export async function clearPendingAnalysisOperation(operationId: string): Promise<void> {
+  await writePendingAnalysisOperations(removePendingAnalysisOperation(await readPendingAnalysisOperations(), operationId));
+  await deletePendingAnalysisImages(operationId);
 }
 
 export async function clearPendingAnalysisOperationForItem(itemId: string): Promise<void> {
-  const current = parsePendingAnalysisOperation(
-    await AsyncStorage.getItem(scopedKey(PENDING_ANALYSIS_KEY))
-  );
-  if (!current || current.itemId !== itemId) return;
-  await clearPendingAnalysisOperation(current.operationId);
+  const match = (await readPendingAnalysisOperations()).find((operation) => operation.itemId === itemId);
+  if (match) await clearPendingAnalysisOperation(match.operationId);
 }
 
 export async function clearLocalUserData(userId: string): Promise<void> {
@@ -342,12 +389,16 @@ export async function clearLocalUserData(userId: string): Promise<void> {
   const keys = await AsyncStorage.getAllKeys();
   const userSuffix = `:${userId}`;
   const pendingKey = scopedStorageKey(PENDING_ANALYSIS_KEY, userId);
-  const pendingOperation = parsePendingAnalysisOperation(await AsyncStorage.getItem(pendingKey));
+  const legacyPendingKey = scopedStorageKey(LEGACY_PENDING_ANALYSIS_KEY, userId);
+  const pendingOperations = parsePendingAnalysisOperations(await AsyncStorage.getItem(pendingKey));
+  const legacyPendingOperation = parsePendingAnalysisOperation(await AsyncStorage.getItem(legacyPendingKey));
+  if (legacyPendingOperation) pendingOperations.push(legacyPendingOperation);
   const directKeys = new Set([
     scopedStorageKey(STORAGE_KEY, userId),
     scopedStorageKey(RECENTLY_DELETED_KEY, userId),
     scopedStorageKey(AI_PROVIDER_PREFERENCE_KEY, userId),
     pendingKey,
+    legacyPendingKey,
     userProfileKey(userId),
   ]);
   const draftKeys = keys.filter(
@@ -356,7 +407,7 @@ export async function clearLocalUserData(userId: string): Promise<void> {
       key.endsWith(userSuffix)
   );
   const keysToRemove = keys.filter((key) => directKeys.has(key) || draftKeys.includes(key));
-  if (pendingOperation) await deletePendingAnalysisImages(pendingOperation.operationId);
+  for (const pendingOperation of pendingOperations) await deletePendingAnalysisImages(pendingOperation.operationId);
   if (keysToRemove.length > 0) {
     await AsyncStorage.multiRemove(keysToRemove);
   }

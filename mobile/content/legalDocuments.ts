@@ -28,9 +28,9 @@ We use this information to authenticate users, generate and improve listing
 drafts, store listings and images, display inventory, support deletion and
 restoration workflows, and optionally synchronize listings to Notion.
 
-Photos and listing content may be sent to the configured Gemini or Groq
-provider to perform AI analysis. Those providers process requests under their
-own terms and privacy policies. Do not upload sensitive personal information
+Photos and listing content may be sent to the configured Gemini, Groq, or
+Claude (Anthropic) provider to perform AI analysis. Those providers process
+requests under their own terms and privacy policies. Do not upload sensitive personal information
 that is not needed to create a listing.
 
 ## Where information is stored
@@ -46,7 +46,7 @@ records in local device storage.
 We share information only with the services required for the feature you use:
 
 - Firebase Authentication for sign-in and account management;
-- Gemini or Groq for requested AI analysis;
+- Gemini, Groq, or Claude (Anthropic) for requested AI analysis;
 - Render, PostgreSQL, and Supabase for backend operation and storage; and
 - Notion only when optional synchronization is enabled.
 

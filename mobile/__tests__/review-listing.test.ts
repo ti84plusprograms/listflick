@@ -124,8 +124,9 @@ const previewShort = descriptionPreview(shortDescription, false);
 equal(previewShort.isDescriptionLong, false, "detects short description");
 equal(previewShort.descriptionToShow, "Short", "does not truncate short description");
 
-// 6. save-photo flows request only the photo permission declared by the native manifest
-const photoPermissionRequest = /MediaLibrary\.requestPermissionsAsync\(\s*true,\s*\["photo"\]\s*\)/;
+// 6. save-photo flows request only the add-only permissions declared by the native manifest
+// (the review screen adds "video" only when the listing has a video to save).
+const photoPermissionRequest = /MediaLibrary\.requestPermissionsAsync\(\s*true,\s*(?:\["photo"\]|videoUri \? \["photo", "video"\] : \["photo"\])\s*,?\s*\)/;
 for (const sourcePath of ["../app/review.tsx", "../hooks/useReviewListing.ts"]) {
   const source = readFileSync(resolve(__dirname, sourcePath), "utf8");
   equal(photoPermissionRequest.test(source), true, `${sourcePath} requests add-only photo permission`);
@@ -143,12 +144,13 @@ for (const sourcePath of ["../app/review.tsx", "../hooks/useReviewListing.ts"]) 
   equal(source.includes("if (savingPhotos) return"), true, `${sourcePath} prevents duplicate save taps`);
   equal(source.includes('"Try Again"'), true, `${sourcePath} offers Try Again on partial/failed saves`);
   equal(
-    source.includes("invalidateAuthenticatedImageUri(urisToSave[failure.index])"),
+    source.includes("invalidateAuthenticatedImageUri(urisToSave[failure.index])")
+      || source.includes("invalidateAuthenticatedImageUri(allUris[failure.index])"),
     true,
     `${sourcePath} invalidates failed protected-image resolutions before retry`,
   );
   equal(
-    source.includes("failedUris = result.failures.map"),
+    source.includes("failedUris = result.failures.map") || source.includes("failedPhotoUris = result.failures"),
     true,
     `${sourcePath} isolates failed URIs for safe retry without duplicating saved photos`,
   );
@@ -161,7 +163,7 @@ equal(
   "review screen keeps the overflow progress indicator mounted while saving",
 );
 equal(
-  reviewScreenSource.includes('{savingPhotos ? "Saving Photos..." : "Listing Preview"}'),
+  reviewScreenSource.includes('{savingPhotos ? saveMediaLabel(Boolean(listing.video), true) : "Listing Preview"}'),
   true,
   "review screen also exposes save progress outside the overflow menu",
 );
@@ -175,5 +177,21 @@ equal(
   true,
   "review screen prevents other overflow actions from hiding progress while photos save",
 );
+
+
+// 8. listing preview shows the questions card above the title and wires the update and skip actions
+{
+  const source = readFileSync(resolve(__dirname, "../app/review.tsx"), "utf8");
+  equal(source.includes("<ListingQuestionsCard"), true, "review renders the questions card");
+  equal(
+    source.indexOf("<ListingQuestionsCard") < source.indexOf("<Text style={styles.titleText}"),
+    true,
+    "questions card is above the title"
+  );
+  equal(source.includes("onSubmit={handleSubmitAnswers}"), true, "Update Listing calls the answers endpoint");
+  equal(source.includes("onSkip={handleSkipQuestions}"), true, "Skip for now dismisses questions");
+  equal(source.includes("busyLabel={questionsBusyLabel}"), true, "card shows the busy label");
+  equal(source.includes("if (questionsBusyLabel || !listing.itemId"), true, "prevents duplicate updates");
+}
 
 console.log("Review listing tests passed.");

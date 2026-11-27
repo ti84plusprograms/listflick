@@ -121,3 +121,7 @@ if (settings.includes("value={draftProviderKey}") && !settings.includes("secureT
 }
 
 console.log("AI Settings UX tests passed.");
+
+const claudeSaved = aiSettingsPresentation("claude", true);
+equal(claudeSaved.providerLabel, "Claude", "Claude provider label");
+equal(claudeSaved.credentialLabel, "Claude API Key", "Claude credential row");

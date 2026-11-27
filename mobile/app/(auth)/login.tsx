@@ -10,7 +10,7 @@ import {
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Ionicons } from '@expo/vector-icons';
 import { BRAND_NAME } from '@/constants/brand';
-import { theme } from '@/constants/theme';
+import { theme, themedStyles } from '@/constants/theme';
 import { useAuth } from '@/state/AuthContext';
 import { authDebugLog, authDebugWarn, describeAuthUser } from '@/utils/authDebug';
 import { ListFlickMark } from '@/components/brand/ListFlickMark';
@@ -194,7 +194,7 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -293,4 +293,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: theme.spacing.sm,
   },
-});
+}));

@@ -8,19 +8,26 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { theme } from "../../constants/theme";
+import { Ionicons } from "@expo/vector-icons";
+import { theme, themedStyles } from "../../constants/theme";
+import type { ListingVideo } from "../../types/listing";
 import { AuthenticatedImage } from "../AuthenticatedImage";
-import { clampCarouselIndex, carouselIndexAfterMomentum } from "./imageCarouselState";
+import { ListingVideoPlayer } from "../media/ListingVideoPlayer";
+import { carouselSlides, clampCarouselIndex, carouselIndexAfterMomentum } from "./imageCarouselState";
 
-export function ImageCarousel({ imageUris }: { imageUris: string[] }) {
+/** Photos in listing order, then the video (if any) as the last slide. */
+export function ImageCarousel({ imageUris, video }: { imageUris: string[]; video?: ListingVideo | null }) {
   const { width: windowWidth } = useWindowDimensions();
   const [pageWidth, setPageWidth] = useState(windowWidth);
   const [activeIndexState, setActiveIndex] = useState(0);
-  const activeIndex = clampCarouselIndex(activeIndexState, imageUris.length);
+  const slides = carouselSlides(imageUris, video?.uri);
+  const slideCount = slides.length;
+  const activeIndex = clampCarouselIndex(activeIndexState, slideCount);
+  const activeSlide = slides[activeIndex];
 
   useEffect(() => {
-    setActiveIndex((current) => clampCarouselIndex(current, imageUris.length));
-  }, [imageUris.length]);
+    setActiveIndex((current) => clampCarouselIndex(current, slideCount));
+  }, [slideCount]);
 
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     const measuredWidth = event.nativeEvent.layout.width;
@@ -35,11 +42,11 @@ export function ImageCarousel({ imageUris }: { imageUris: string[] }) {
       const nextIndex = carouselIndexAfterMomentum(
         contentOffsetX,
         pageWidth,
-        imageUris.length,
+        slideCount,
       );
       setActiveIndex((current) => (current === nextIndex ? current : nextIndex));
     },
-    [imageUris.length, pageWidth],
+    [slideCount, pageWidth],
   );
 
   const handleScroll = useCallback(
@@ -56,26 +63,35 @@ export function ImageCarousel({ imageUris }: { imageUris: string[] }) {
     [updateActiveIndexFromOffset],
   );
 
-  if (imageUris.length === 0) return null;
+  if (slideCount === 0) return null;
 
   return (
     <View onLayout={handleLayout} style={styles.photoContainer}>
       <FlatList
-        key={`listing-preview-${pageWidth}-${imageUris.length}`}
-        data={imageUris}
+        key={`listing-preview-${pageWidth}-${slideCount}`}
+        data={slides}
         horizontal
         pagingEnabled
         accessible
-        accessibilityLabel={`Photo ${activeIndex + 1} of ${imageUris.length}`}
+        accessibilityLabel={activeSlide?.kind === "video"
+          ? "Video"
+          : `Photo ${activeIndex + 1} of ${imageUris.length}`}
         accessibilityLiveRegion="polite"
         showsHorizontalScrollIndicator={false}
-        keyExtractor={(uri, index) => `${uri}-${index}`}
-        renderItem={({ item: uri }) => (
-          <AuthenticatedImage
-            uri={uri}
-            style={[styles.mainPhoto, { width: pageWidth, height: pageWidth * 0.8 }]}
-          />
-        )}
+        keyExtractor={(slide, index) => `${slide.kind}-${slide.uri}-${index}`}
+        renderItem={({ item: slide }) =>
+          slide.kind === "video" ? (
+            <ListingVideoPlayer
+              uri={slide.uri}
+              style={{ width: pageWidth, height: pageWidth * 0.8 }}
+            />
+          ) : (
+            <AuthenticatedImage
+              uri={slide.uri}
+              style={[styles.mainPhoto, { width: pageWidth, height: pageWidth * 0.8 }]}
+            />
+          )
+        }
         initialNumToRender={1}
         initialScrollIndex={activeIndex}
         maxToRenderPerBatch={1}
@@ -86,23 +102,32 @@ export function ImageCarousel({ imageUris }: { imageUris: string[] }) {
         scrollEventThrottle={16}
         onMomentumScrollEnd={handleMomentumScrollEnd}
       />
-      {imageUris.length > 1 && (
+      {slideCount > 1 && (
         <View
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
           pointerEvents="none"
           style={styles.dotContainer}
         >
-          {imageUris.map((_, i) => (
-            <View key={i} style={[styles.dot, i === activeIndex && styles.dotActive]} />
-          ))}
+          {slides.map((slide, i) =>
+            slide.kind === "video" ? (
+              <Ionicons
+                key={i}
+                name="videocam"
+                size={10}
+                color={i === activeIndex ? "#FFFFFF" : "rgba(255,255,255,0.5)"}
+              />
+            ) : (
+              <View key={i} style={[styles.dot, i === activeIndex && styles.dotActive]} />
+            ),
+          )}
         </View>
       )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   photoContainer: {
     width: "100%",
     aspectRatio: 1.25,
@@ -118,6 +143,7 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: "row",
     justifyContent: "center",
+    alignItems: "center",
     gap: 6,
   },
   dot: {
@@ -129,4 +155,4 @@ const styles = StyleSheet.create({
   dotActive: {
     backgroundColor: "#FFFFFF",
   },
-});
+}));

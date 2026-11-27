@@ -55,6 +55,8 @@ def temp_db(monkeypatch, tmp_path):
             "upload_fingerprint": None,
             "upload_feedback_json": None,
             "pending_expires_at": None,
+            "video_json": None,
+            "notion_media_json": None,
             "created_at": now,
             "updated_at": now,
         }
@@ -109,6 +111,12 @@ def temp_db(monkeypatch, tmp_path):
         item["image_paths_json"] = json.dumps(image_paths)
         if image_storage_state:
             item["image_storage_state"] = image_storage_state
+
+    async def mock_update_item_video(item_id: str, user_id: str = "legacy", video: dict | None = None) -> None:
+        item = _mock_db.get(item_id)
+        if not item or item.get("user_id") != user_id:
+            raise LookupError("Item not found for this user")
+        item["video_json"] = json.dumps(video) if video else None
 
     async def mock_delete_item(item_id: str, user_id: str = "legacy") -> None:
         if item_id in _mock_db:
@@ -301,6 +309,7 @@ def temp_db(monkeypatch, tmp_path):
         last_error: str | None = None,
         succeeded: bool = False,
         create_ambiguous: bool = False,
+        media: dict | None = None,
     ) -> dict:
         item = _mock_db.get(item_id)
         if (
@@ -320,6 +329,8 @@ def temp_db(monkeypatch, tmp_path):
             succeeded=succeeded,
         )
         item["notion_create_ambiguous"] = create_ambiguous
+        if media is not None:
+            item["notion_media_json"] = json.dumps(media)
         item["notion_sync_lease_token"] = None
         item["notion_sync_lease_expires_at"] = None
         return dict(item)
@@ -366,6 +377,7 @@ def temp_db(monkeypatch, tmp_path):
     monkeypatch.setattr(database, "get_item", AsyncMock(side_effect=mock_get_item))
     monkeypatch.setattr(database, "update_item_images", AsyncMock(side_effect=mock_update_item_images))
     monkeypatch.setattr(database, "delete_item", AsyncMock(side_effect=mock_delete_item))
+    monkeypatch.setattr(database, "update_item_video", AsyncMock(side_effect=mock_update_item_video))
     monkeypatch.setattr(database, "update_item_analysis", AsyncMock(side_effect=mock_update_item_analysis))
     monkeypatch.setattr(database, "get_analysis_job", AsyncMock(side_effect=mock_get_analysis_job))
     monkeypatch.setattr(database, "ensure_succeeded_analysis_job", AsyncMock(side_effect=mock_ensure_succeeded_analysis_job))
@@ -395,6 +407,7 @@ def temp_db(monkeypatch, tmp_path):
     monkeypatch.setattr(items_api, "complete_analysis_job", AsyncMock(side_effect=mock_complete_analysis_job))
     monkeypatch.setattr(items_api, "fail_analysis_job", AsyncMock(side_effect=mock_fail_analysis_job))
     monkeypatch.setattr(items_api, "update_item_images", AsyncMock(side_effect=mock_update_item_images))
+    monkeypatch.setattr(items_api, "update_item_video", AsyncMock(side_effect=mock_update_item_video))
     monkeypatch.setattr(items_api, "update_item_notion_sync", AsyncMock(side_effect=mock_update_item_notion_sync))
     monkeypatch.setattr(items_api, "claim_item_notion_sync", AsyncMock(side_effect=mock_claim_item_notion_sync))
     monkeypatch.setattr(items_api, "finish_item_notion_sync", AsyncMock(side_effect=mock_finish_item_notion_sync))

@@ -7,7 +7,7 @@ Expo React Native client
 FastAPI backend on local machine or Render
         ├── Firebase Admin token verification
         ├── PostgreSQL item records, analysis leases, and UID ownership checks
-        ├── request-inline Gemini or Groq analysis/generation
+        ├── request-inline Gemini, Groq, or Claude analysis/generation
         ├── optional Notion synchronization
         └── Storage abstraction
                 ├── private Supabase bucket when configured

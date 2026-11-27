@@ -1,61 +1,152 @@
-import { Link, router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View, Dimensions } from "react-native";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { AuthenticatedImage } from "../../components/AuthenticatedImage";
 
 import { BRAND_NAME } from "../../constants/brand";
-import { theme } from "../../constants/theme";
+import { theme, themedStyles } from "../../constants/theme";
 import { ListFlickMark } from "../../components/brand/ListFlickMark";
-import { getAllListings, getPendingAnalysisOperation } from "../../services/storage";
-import type { SavedListing } from "../../types/listing";
+import { ProfileDefaultsModal } from "../../components/profile/ProfileDefaultsModal";
+import {
+  clearPendingAnalysisOperation,
+  getAllListings,
+  getPendingAnalysisOperations,
+  getUserProfile,
+} from "../../services/storage";
+import { ApiError, discardPendingItem, resolveImageUri } from "../../services/api";
+import { useAuth } from "../../state/AuthContext";
+import { setInventoryFilter } from "../../state/inventoryFilter";
+import type { SavedListing, UserProfile } from "../../types/listing";
 import type { PendingAnalysisOperation } from "../../utils/pendingAnalysis";
-import { imageUrl, resolveImageUri } from "../../services/api";
+import {
+  HOME_ROW_LIMIT,
+  buildHomeModel,
+  formatListingPrice,
+  listingAskingPrice,
+  listingMeta,
+  savedWhen,
+  statusLabel,
+} from "../../utils/listingReadiness";
+import { userProfileDefaultsFromAuth } from "../../utils/userProfile";
 
-const { width } = Dimensions.get("window");
-const CARD_WIDTH = width * 0.45; // Approximately half the screen for recent items
+const HOW_IT_WORKS = [
+  ["Snap the item", "A few photos or a short video. Include any flaws."],
+  ["ListFlick does the listing", "Prices come from what similar items actually sell for."],
+  ["Post it", "Save the photos to your camera roll and paste the text into Marketplace."],
+] as const;
 
 function formatPrice(item: SavedListing): string {
-  if (typeof item.activePrice === "number" && item.activePrice > 0) return `$${item.activePrice}`;
-  if (item.priceSuggestion?.recommended_price) return `$${item.priceSuggestion.recommended_price}`;
-  if (item.priceMin === 0 && item.priceMax === 0) return "No price set";
-  if (item.priceMin === item.priceMax) return `$${item.priceMin}`;
-  return `$${item.priceMin}–$${item.priceMax}`;
+  return formatListingPrice(listingAskingPrice(item));
 }
 
 function thumbnailUri(item: SavedListing): string | null {
   return resolveImageUri(item.imageUris?.[0] ?? item.imageUri, item.itemId, 0);
 }
 
-export default function HomeScreen() {
-  const [recentListings, setRecentListings] = useState<SavedListing[]>([]);
-  const [pendingOperation, setPendingOperation] = useState<PendingAnalysisOperation | null>(null);
-  const [homeDataReady, setHomeDataReady] = useState(false);
+function pendingPhotoCount(operation: PendingAnalysisOperation): string {
+  const count = operation.imageUris.length;
+  return count ? `${count} photo${count === 1 ? "" : "s"}` : "";
+}
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return "Good Morning";
-    if (hour < 17) return "Good Afternoon";
-    return "Good Evening";
-  };
+type HomeRowProps = {
+  thumbUri?: string | null;
+  icon?: keyof typeof Ionicons.glyphMap;
+  title: string;
+  meta: string;
+  reason: string;
+  tag?: string;
+  ok?: boolean;
+  onPress: () => void;
+  onDismiss?: () => void;
+  dismissLabel?: string;
+};
+
+function HomeRow({ thumbUri, icon = "image-outline", title, meta, reason, tag, ok, onPress, onDismiss, dismissLabel }: HomeRowProps) {
+  return (
+    <View style={styles.row}>
+      <Pressable style={styles.rowMain} onPress={onPress} accessibilityRole="button" accessibilityLabel={`${title}. ${reason}`}>
+        <View style={styles.rowThumb}>
+          {thumbUri ? (
+            <AuthenticatedImage uri={thumbUri} style={styles.rowThumbImage} />
+          ) : (
+            <Ionicons name={icon} size={22} color={theme.colors.textTertiary} />
+          )}
+        </View>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle} numberOfLines={1}>
+            {title}
+          </Text>
+          {meta ? <Text style={styles.rowMeta} numberOfLines={1}>{meta}</Text> : null}
+          <View style={styles.rowReason}>
+            <Ionicons
+              name={ok ? "checkmark-circle" : "alert-circle"}
+              size={14}
+              color={ok ? theme.colors.success : theme.colors.warning}
+            />
+            <Text style={styles.rowReasonText} numberOfLines={2}>
+              {reason}
+            </Text>
+            {tag ? (
+              <View style={styles.rowTag}>
+                <Text style={styles.rowTagText}>{tag}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+        {!onDismiss && <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />}
+      </Pressable>
+      {onDismiss && (
+        <Pressable style={styles.rowDismiss} onPress={onDismiss} accessibilityRole="button" accessibilityLabel={dismissLabel}>
+          <Ionicons name="close" size={18} color={theme.colors.textTertiary} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const authProfileDefaults = useMemo(
+    () => userProfileDefaultsFromAuth(user),
+    [user?.displayName, user?.email]
+  );
+  const [listings, setListings] = useState<SavedListing[]>([]);
+  const [pendingOperations, setPendingOperations] = useState<PendingAnalysisOperation[]>([]);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  // E2E: true only once this focus has fresh data, so Maestro never reads a stale list.
+  const [dataReady, setDataReady] = useState(false);
+  const [profileVisible, setProfileVisible] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setHomeDataReady(false);
-      Promise.all([getAllListings(), getPendingAnalysisOperation()]).then(([all, pending]) => {
+      setDataReady(false);
+      Promise.all([
+        getAllListings(),
+        getPendingAnalysisOperations(),
+        getUserProfile(user?.uid, authProfileDefaults),
+      ]).then(([all, pending, savedProfile]) => {
         if (!active) return;
-        // Sort by updatedAt descending and take top 5
-        const sorted = all.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-        setRecentListings(sorted.slice(0, 5));
-        setPendingOperation(pending);
-        setHomeDataReady(true);
+        setListings(all);
+        setPendingOperations(pending);
+        setProfile(savedProfile);
+        setLoaded(true);
+        setDataReady(true);
       });
       return () => {
         active = false;
-        setHomeDataReady(false);
+        setDataReady(false);
       };
-    }, [])
+    }, [authProfileDefaults, user?.uid])
+  );
+
+  const model = useMemo(
+    () => buildHomeModel({ listings, pendingCount: pendingOperations.length, profile }),
+    [listings, pendingOperations, profile]
   );
 
   const openListing = (item: SavedListing) => {
@@ -67,163 +158,258 @@ export default function HomeScreen() {
     });
   };
 
-  const renderRecentItem = ({ item }: { item: SavedListing }) => {
-    const thumb = thumbnailUri(item);
-    return (
-      <Pressable style={styles.recentCard} onPress={() => openListing(item)}>
-        <View style={styles.recentThumbnailContainer}>
-          {thumb ? (
-            <AuthenticatedImage uri={thumb} style={styles.recentThumbnail} />
-          ) : (
-            <View style={[styles.recentThumbnail, styles.placeholderThumbnail]}>
-              <Ionicons name="image-outline" size={24} color={theme.colors.textTertiary} />
-            </View>
-          )}
-        </View>
-        <View style={styles.recentTextContainer}>
-          <Text style={styles.recentTitle} numberOfLines={1}>
-            {item.title || "Untitled"}
-          </Text>
-          <Text style={styles.recentPrice}>{formatPrice(item)}</Text>
-          <View style={styles.recentStatusBadge}>
-            <Text style={styles.recentStatusText}>{item.status === "saved" ? "Ready to list" : "Draft"}</Text>
-          </View>
-        </View>
-      </Pressable>
+  const openInventory = (filter: "attention" | null) => {
+    setInventoryFilter(filter);
+    router.navigate("/inventory");
+  };
+
+  const startListing = () => router.push("/camera");
+
+  const resumePending = (operation: PendingAnalysisOperation) => {
+    router.push({
+      pathname: "/processing",
+      params: { operationId: operation.operationId },
+    });
+  };
+
+  const discardPending = (operation: PendingAnalysisOperation) => {
+    Alert.alert(
+      "Discard this listing?",
+      "The unfinished listing and its photos will be removed.",
+      [
+        { text: "Keep", style: "cancel" },
+        {
+          text: "Discard",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              if (operation.itemId) {
+                try {
+                  await discardPendingItem(operation.itemId);
+                } catch (error) {
+                  // Already gone on the server (expired or discarded elsewhere): finish clearing it here.
+                  if (!(error instanceof ApiError && error.status === 404)) throw error;
+                }
+              }
+              await clearPendingAnalysisOperation(operation.operationId);
+              setPendingOperations((current) => current.filter((item) => item.operationId !== operation.operationId));
+            })().catch((error) => {
+              Alert.alert("Discard failed", error instanceof Error ? error.message : "Could not discard listing");
+            });
+          },
+        },
+      ]
     );
   };
 
+  const attentionRows: ReactNode[] = [];
+  pendingOperations.forEach((operation) => {
+    attentionRows.push(
+      <HomeRow
+        key={`pending-${operation.operationId}`}
+        thumbUri={operation.imageUris[0] ?? operation.video?.frames[0]?.uri}
+        title="Unfinished listing"
+        meta={pendingPhotoCount(operation)}
+        reason={
+          operation.phase === "completed"
+            ? "Written but not saved. Tap to resume"
+            : "Stopped before writing. Tap to resume"
+        }
+        onPress={() => resumePending(operation)}
+        onDismiss={() => discardPending(operation)}
+        dismissLabel="Discard unfinished listing"
+      />
+    );
+  });
+  model.attention.forEach(({ listing, reason }) => {
+    attentionRows.push(
+      <HomeRow
+        key={listing.id}
+        thumbUri={thumbnailUri(listing)}
+        title={listing.title || "Untitled listing"}
+        meta={listingMeta([formatPrice(listing), statusLabel(listing)])}
+        reason={reason.text}
+        tag={reason.tag}
+        onPress={() => openListing(listing)}
+      />
+    );
+  });
+
   return (
     <View style={styles.container} testID="home-screen">
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.overline}>{getGreeting().toUpperCase()}</Text>
-          <View style={styles.titleRow}>
-            <Text style={styles.title}>{BRAND_NAME}</Text>
-            <View style={styles.iconBox}>
-              <ListFlickMark size={18} />
-            </View>
+      <ScrollView
+        testID={dataReady ? "home-data-ready" : undefined}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(insets.top, 20) + 16 }]}>
+        {/* Header: wordmark only, plus a one-line summary once there are listings */}
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>{BRAND_NAME}</Text>
+          <View style={styles.iconBox}>
+            <ListFlickMark size={18} />
           </View>
         </View>
-      </View>
+        {model.summary ? (
+          <Pressable
+            style={styles.summary}
+            onPress={() => openInventory(null)}
+            accessibilityRole="button"
+            accessibilityHint="Opens Inventory"
+          >
+            <Text style={styles.summaryText}>{model.summary}</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+          </Pressable>
+        ) : (
+          <View style={styles.summarySpacer} />
+        )}
 
-      <FlatList
-        testID={homeDataReady ? "home-data-ready" : undefined}
-        data={[{ key: 'content' }]}
-        renderItem={() => (
-          <View style={styles.scrollContent}>
-            {/* Hero */}
-            <View style={styles.heroSection}>
-              <Text style={styles.heroTitle}>Sell something today</Text>
-              <Text style={styles.heroSubtitle}>
-                Turn photos into a ready-to-post listing in minutes.
-              </Text>
+        {!loaded ? null : model.isFirstRun ? (
+          <>
+            <Pressable style={styles.firstRunCard} onPress={startListing} accessibilityRole="button" testID="home-new-listing">
+              <View style={styles.firstRunIcon}>
+                <Ionicons name="camera" size={30} color={theme.colors.accent} />
+              </View>
+              <View style={styles.firstRunText}>
+                <Text style={styles.firstRunTitle}>Make your first listing</Text>
+                <Text style={styles.firstRunSubtitle}>
+                  Snap something you want to sell. ListFlick identifies it, prices it and writes the listing.
+                </Text>
+              </View>
+              <View style={styles.firstRunFooter}>
+                <View style={styles.firstRunTags}>
+                  <View style={styles.firstRunTag}>
+                    <Ionicons name="camera-outline" size={16} color={theme.colors.accentText} />
+                    <Text style={styles.firstRunTagText}>Photos</Text>
+                  </View>
+                  <View style={styles.firstRunTag}>
+                    <Ionicons name="videocam-outline" size={16} color={theme.colors.accentText} />
+                    <Text style={styles.firstRunTagText}>Video</Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={22} color={theme.colors.accentText} />
+              </View>
+            </Pressable>
+
+            <View style={styles.howItWorks}>
+              <Text style={styles.sectionTitle}>How it works</Text>
+              {HOW_IT_WORKS.map(([stepTitle, stepText], index) => (
+                <View key={stepTitle} style={styles.step}>
+                  <View style={styles.stepNumber}>
+                    <Text style={styles.stepNumberText}>{index + 1}</Text>
+                  </View>
+                  <View style={styles.stepText}>
+                    <Text style={styles.stepTitle}>{stepTitle}</Text>
+                    <Text style={styles.stepBody}>{stepText}</Text>
+                  </View>
+                </View>
+              ))}
             </View>
 
-            {pendingOperation && (
-              <Pressable
-                style={styles.resumeCard}
-                onPress={() => router.push({
-                  pathname: "/processing",
-                  params: { operationId: pendingOperation.operationId },
-                })}
-              >
-                <View style={styles.resumeIcon}>
-                  <Ionicons name="refresh" size={22} color={theme.colors.textPrimary} />
+          </>
+        ) : (
+          <>
+            {/* Same place as the first-run card, so the main action never moves */}
+            <Pressable style={styles.newListingButton} onPress={startListing} accessibilityRole="button" testID="home-new-listing">
+              <View style={styles.newListingIcon}>
+                <Ionicons name="camera" size={24} color={theme.colors.accent} />
+              </View>
+              <View style={styles.newListingText}>
+                <Text style={styles.newListingTitle}>New listing</Text>
+                <Text style={styles.newListingSubtitle} numberOfLines={1}>
+                  Snap a few photos. ListFlick writes the rest.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.accentText} />
+            </Pressable>
+
+            {attentionRows.length > 0 ? (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Needs attention</Text>
+                  <Text style={styles.sectionCount}>{model.attentionCount}</Text>
                 </View>
-                <View style={styles.resumeText}>
-                  <Text style={styles.resumeTitle}>Resume listing</Text>
-                  <Text style={styles.resumeSubtitle}>
-                    Continue from {pendingOperation.imageUris.length} saved photo{pendingOperation.imageUris.length === 1 ? "" : "s"}.
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-              </Pressable>
-            )}
-
-            {!pendingOperation && (
-              <>
-                {/* Main Action Card */}
-                <View style={styles.actionCard}>
-                  <View style={styles.cameraCircle}>
-                    <Ionicons name="camera" size={32} color={theme.colors.background} />
-                  </View>
-                  <Text style={styles.cardTitle}>Start a New Listing</Text>
-                  <Text style={styles.cardSubtitle}>Take or upload photos to get started.</Text>
-
-                  <Link href="/camera" asChild>
-                    <Pressable style={styles.primaryButton}>
-                      <Ionicons name="camera-outline" size={20} color={theme.colors.accentText} />
-                      <Text style={styles.primaryButtonText}>Take Photos</Text>
-                    </Pressable>
-                  </Link>
-                </View>
-
-                {/* Secondary Action */}
-                <Pressable
-                  style={styles.secondaryAction}
-                  testID="home-choose-from-library"
-                  accessibilityLabel="Choose from Library"
-                  onPress={() => {
-                    // Pass a param to camera to immediately open picker if desired
-                    router.push({ pathname: "/camera", params: { openPicker: "true" } });
-                  }}
-                >
-                  <Ionicons name="image-outline" size={20} color={theme.colors.textPrimary} />
-                  <Text style={styles.secondaryActionText}>Choose from Library</Text>
-                </Pressable>
-              </>
-            )}
-
-            {/* Recent Section */}
-            {recentListings.length > 0 && (
-              <View style={styles.recentSection}>
-                <View style={styles.recentHeader}>
-                  <Text style={styles.recentSectionTitle}>Recent</Text>
-                  <Link href="/inventory" asChild>
-                    <Pressable>
-                      <Text style={styles.seeAllText}>See All <Ionicons name="chevron-forward" size={12} /></Text>
-                    </Pressable>
-                  </Link>
-                </View>
-
-                <FlatList
-                  data={recentListings}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.recentListContent}
-                  keyExtractor={(item) => item.id}
-                  renderItem={renderRecentItem}
-                />
+                {attentionRows.slice(0, HOME_ROW_LIMIT)}
+                {attentionRows.length > HOME_ROW_LIMIT && model.attention.length > 0 && (
+                  <Pressable style={styles.moreButton} onPress={() => openInventory("attention")} accessibilityRole="button">
+                    <Text style={styles.moreText}>See all {model.attention.length}</Text>
+                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textPrimary} />
+                  </Pressable>
+                )}
+              </View>
+            ) : (
+              <View style={styles.caughtUp}>
+                <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
+                <Text style={styles.caughtUpText}>
+                  <Text style={styles.caughtUpBold}>All caught up.</Text> Nothing needs your attention.
+                </Text>
               </View>
             )}
-          </View>
+
+            {/* Ready listings always show, under anything that needs attention */}
+            {model.ready.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Ready to post</Text>
+                  <Text style={styles.sectionCount}>{model.ready.length}</Text>
+                </View>
+                {model.ready.slice(0, HOME_ROW_LIMIT).map((listing) => (
+                  <HomeRow
+                    key={listing.id}
+                    thumbUri={thumbnailUri(listing)}
+                    title={listing.title || "Untitled listing"}
+                    meta={listingMeta([formatPrice(listing), savedWhen(listing.updatedAt)])}
+                    reason="Ready to post"
+                    ok
+                    onPress={() => openListing(listing)}
+                  />
+                ))}
+                {model.ready.length > HOME_ROW_LIMIT && (
+                  <Pressable style={styles.moreButton} onPress={() => openInventory(null)} accessibilityRole="button">
+                    <Text style={styles.moreText}>All {listings.length} in Inventory</Text>
+                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textPrimary} />
+                  </Pressable>
+                )}
+              </View>
+            )}
+          </>
         )}
+
+        {/* Setup sits at the bottom as its own pill, apart from listings */}
+        {loaded && model.setupMissing && (
+          <>
+            <View style={styles.bottomSpacer} />
+            <Pressable
+              style={styles.setupPill}
+              onPress={() => setProfileVisible(true)}
+              accessibilityRole="button"
+              accessibilityHint="Added to every listing for you"
+            >
+              <Ionicons name="location-outline" size={16} color={theme.colors.textPrimary} />
+              <Text style={styles.setupPillText} numberOfLines={1}>
+                Set up once: pickup area and payment
+              </Text>
+              <Ionicons name="chevron-forward" size={14} color={theme.colors.textTertiary} />
+            </Pressable>
+          </>
+        )}
+      </ScrollView>
+
+      <ProfileDefaultsModal
+        visible={profileVisible}
+        onClose={() => setProfileVisible(false)}
+        onSaved={setProfile}
       />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
   },
-  header: {
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: theme.spacing.screenPadding,
-    paddingTop: 60,
-    paddingBottom: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  overline: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: theme.colors.textSecondary,
-    letterSpacing: 0.5,
-    marginBottom: 4,
+    paddingBottom: 24,
   },
   titleRow: {
     flexDirection: "row",
@@ -244,177 +430,288 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  scrollContent: {
-    paddingHorizontal: theme.spacing.screenPadding,
-    paddingBottom: 40,
-  },
-  heroSection: {
-    marginTop: 16,
-    marginBottom: 32,
-  },
-  heroTitle: {
-    ...theme.typography.heroTitle,
-    color: theme.colors.textPrimary,
-    marginBottom: 8,
-  },
-  heroSubtitle: {
-    ...theme.typography.body,
-    color: theme.colors.textSecondary,
-  },
-  actionCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.card,
-    padding: 32,
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  resumeCard: {
+  summary: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.radius.card,
-    backgroundColor: theme.colors.surface,
+    alignSelf: "flex-start",
+    gap: 4,
+    minHeight: 32,
+    marginTop: 4,
+    marginBottom: 16,
   },
-  resumeIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.colors.background,
-  },
-  resumeText: {
-    flex: 1,
-  },
-  resumeTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: theme.colors.textPrimary,
-  },
-  resumeSubtitle: {
-    marginTop: 3,
+  summaryText: {
     fontSize: 13,
     color: theme.colors.textSecondary,
   },
-  cameraCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: theme.colors.accent,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 24,
+  summarySpacer: {
+    height: 24,
   },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: theme.colors.textPrimary,
-    marginBottom: 8,
-  },
-  cardSubtitle: {
-    fontSize: 14,
-    color: theme.colors.textSecondary,
-    textAlign: "center",
-    marginBottom: 24,
-  },
-  primaryButton: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: theme.radius.button,
-    paddingVertical: 16,
+  /* First run */
+  firstRunCard: {
+    gap: 16,
+    paddingTop: 28,
     paddingHorizontal: 24,
-    width: "100%",
-    flexDirection: "row",
+    paddingBottom: 24,
+    borderRadius: 20,
+    backgroundColor: theme.colors.accent,
+    marginBottom: 28,
+  },
+  firstRunIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: theme.colors.accentText,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
   },
-  primaryButtonText: {
-    ...theme.typography.buttonLabel,
+  firstRunText: {
+    gap: 6,
+  },
+  firstRunTitle: {
+    fontSize: 26,
+    lineHeight: 30,
+    fontWeight: "800",
     color: theme.colors.accentText,
   },
-  secondaryAction: {
+  firstRunSubtitle: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: theme.colors.accentText,
+    opacity: 0.75,
+  },
+  firstRunFooter: {
     flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  firstRunTags: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  firstRunTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: theme.colors.accentTint,
+  },
+  firstRunTagText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: theme.colors.accentText,
+  },
+  howItWorks: {
+    gap: 16,
+    marginBottom: 24,
+  },
+  step: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
+  },
+  stepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    marginBottom: 40,
   },
-  secondaryActionText: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: theme.colors.textPrimary,
-  },
-  recentSection: {
-    marginTop: 8,
-  },
-  recentHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  recentSectionTitle: {
-    fontSize: 17,
+  stepNumberText: {
+    fontSize: 13,
     fontWeight: "700",
     color: theme.colors.textPrimary,
   },
-  seeAllText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: theme.colors.textPrimary,
+  stepText: {
+    flex: 1,
+    gap: 2,
   },
-  recentListContent: {
-    gap: 16,
-    paddingRight: theme.spacing.screenPadding, // So the last item doesn't get cut off
-  },
-  recentCard: {
-    width: CARD_WIDTH,
-    gap: 12,
-  },
-  recentThumbnailContainer: {
-    width: "100%",
-    aspectRatio: 1,
-    borderRadius: theme.radius.photo,
-    overflow: "hidden",
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.borderSubtle,
-  },
-  recentThumbnail: {
-    width: "100%",
-    height: "100%",
-  },
-  placeholderThumbnail: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  recentTextContainer: {
-    gap: 4,
-  },
-  recentTitle: {
+  stepTitle: {
     fontSize: 15,
     fontWeight: "600",
     color: theme.colors.textPrimary,
   },
-  recentPrice: {
-    fontSize: 14,
+  stepBody: {
+    fontSize: 13,
+    lineHeight: 18,
     color: theme.colors.textSecondary,
   },
-  recentStatusBadge: {
-    backgroundColor: theme.colors.tagBackground,
-    alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 4,
+  /* Fills leftover space so the setup pill rests at the bottom of the screen */
+  bottomSpacer: {
+    flex: 1,
+    minHeight: 8,
   },
-  recentStatusText: {
-    fontSize: 11,
-    fontWeight: "500",
+  setupPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 22,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  setupPillText: {
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: "600",
     color: theme.colors.textPrimary,
   },
-});
+  /* Has listings */
+  newListingButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    paddingVertical: 22,
+    paddingHorizontal: 20,
+    borderRadius: theme.radius.card,
+    backgroundColor: theme.colors.accent,
+    marginBottom: 28,
+  },
+  newListingIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: theme.colors.accentText,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  newListingText: {
+    flex: 1,
+    gap: 3,
+  },
+  newListingTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: theme.colors.accentText,
+  },
+  newListingSubtitle: {
+    fontSize: 14,
+    color: theme.colors.accentText,
+    opacity: 0.75,
+  },
+  section: {
+    marginBottom: 20,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.colors.textPrimary,
+  },
+  sectionCount: {
+    fontSize: 13,
+    color: theme.colors.textSecondary,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.borderSubtle,
+  },
+  rowMain: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    minWidth: 0,
+  },
+  rowThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.borderSubtle,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowThumbImage: {
+    width: "100%",
+    height: "100%",
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  rowTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.textPrimary,
+  },
+  rowMeta: {
+    fontSize: 13,
+    color: theme.colors.textSecondary,
+  },
+  rowReason: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  rowReasonText: {
+    flexShrink: 1,
+    fontSize: 13,
+    color: theme.colors.textPrimary,
+  },
+  rowTag: {
+    borderWidth: 1,
+    borderColor: theme.colors.tagBorder,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+  },
+  rowTagText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: theme.colors.textSecondary,
+  },
+  rowDismiss: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  moreButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    minHeight: 44,
+  },
+  moreText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.textPrimary,
+  },
+  caughtUp: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: theme.radius.button,
+    backgroundColor: theme.colors.surface,
+    marginBottom: 24,
+  },
+  caughtUpText: {
+    flex: 1,
+    fontSize: 14,
+    color: theme.colors.textPrimary,
+  },
+  caughtUpBold: {
+    fontWeight: "600",
+  },
+}));

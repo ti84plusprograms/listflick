@@ -53,6 +53,7 @@ export function buildSavedListing(
     itemId: listing.itemId,
     imageUri: listing.imageUris[0],
     imageUris: listing.imageUris,
+    video: listing.video ?? null,
     title: listing.title,
     description: listing.description,
     category: listing.category,

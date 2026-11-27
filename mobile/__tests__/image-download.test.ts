@@ -60,7 +60,7 @@ const originalLoad = (Module as any)._load;
   return originalLoad.apply(this, arguments);
 };
 
-const { saveListingImagesToLibrary } = require("../services/imageDownload") as typeof import("../services/imageDownload");
+const { saveListingImagesToLibrary, saveListingMediaToLibrary } = require("../services/imageDownload") as typeof import("../services/imageDownload");
 import { formatImageDownloadResult } from "../utils/imageDownloadResult";
 
 function equal<T>(actual: T, expected: T, message: string): void {
@@ -403,6 +403,53 @@ async function runTests() {
     }),
     { title: "Partially saved", message: "Saved 1 of 3 photos. Some photos could not be saved." },
     "partial unsupported/unknown only blames neither network nor library",
+  );
+
+  // 13. Photos and video: cover first, photos in order, the video last.
+  resetMocks();
+  mockResolveAuthUri = async (uri) => ({ uri: uri.includes("/video/") ? `https://signed.test/video.mov?token=1` : uri });
+  const mediaResult = await saveListingMediaToLibrary(
+    ["file:///cover.jpg", "file:///second.jpg"],
+    "https://api.test/api/items/1/video/v1",
+  );
+  equal(mediaResult, { total: 3, saved: 3, failures: [], videoIncluded: true }, "photos and video all saved");
+  equal(savedAssets.slice(0, 2), ["file:///cover.jpg", "file:///second.jpg"], "photos are saved first, cover first");
+  equal(savedAssets[2].endsWith(".mov"), true, "the video is saved last with a video file extension");
+  equal(downloadedFiles[0].uri, "https://signed.test/video.mov?token=1", "the video downloads from its signed URL");
+  equal(
+    formatImageDownloadResult(mediaResult),
+    { title: "Saved", message: "Saved 2 photos and the video to your camera roll." },
+    "success message mentions the video",
+  );
+
+  // A backend video URL without an extension still saves as .mp4 so the library treats it as video.
+  resetMocks();
+  const fallbackResult = await saveListingMediaToLibrary([], "https://api.test/api/items/1/video/v2");
+  equal(fallbackResult.saved, 1, "video-only save works");
+  equal(savedAssets[0].endsWith(".mp4"), true, "extensionless video URLs save as .mp4");
+  equal(
+    formatImageDownloadResult(fallbackResult),
+    { title: "Saved", message: "Saved the video to your camera roll." },
+    "video-only success message",
+  );
+
+  // Without a video the result keeps its original shape.
+  resetMocks();
+  equal(
+    await saveListingMediaToLibrary(["file:///only.jpg"], null),
+    { total: 1, saved: 1, failures: [] },
+    "no video means no video flag",
+  );
+
+  // Video failure is reported on its own.
+  resetMocks();
+  mockDownloadError = new Error("network down");
+  const videoFailed = await saveListingMediaToLibrary(["file:///a.jpg"], "https://api.test/api/items/1/video/v3");
+  equal(videoFailed.failures, [{ index: 1, category: "download" }], "the video is the last index");
+  equal(
+    formatImageDownloadResult(videoFailed).title,
+    "Video not saved",
+    "photos saved but the video failed",
   );
 
   console.log("Image download tests passed.");

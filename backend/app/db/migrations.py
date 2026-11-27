@@ -245,6 +245,16 @@ async def migration_010_add_notion_sync_lease(conn: asyncpg.Connection) -> None:
         await conn.execute(f"ALTER TABLE items ADD COLUMN IF NOT EXISTS {name} {definition}")
 
 
+async def migration_011_add_item_video(conn: asyncpg.Connection) -> None:
+    """One optional video per listing, plus what the last Notion sync did with it."""
+    columns = {
+        "video_json": "TEXT",
+        "notion_media_json": "TEXT",
+    }
+    for name, definition in columns.items():
+        await conn.execute(f"ALTER TABLE items ADD COLUMN IF NOT EXISTS {name} {definition}")
+
+
 MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, migration_001_create_items),
     (2, migration_002_add_item_lifecycle_columns),
@@ -258,6 +268,7 @@ MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (8, migration_008_revoke_global_function_execute_default),
     (9, migration_009_add_notion_sync_reason),
     (10, migration_010_add_notion_sync_lease),
+    (11, migration_011_add_item_video),
 )
 
 

@@ -9,17 +9,23 @@ import type {
   ImproveListingResponse,
   HealthResponse,
   ItemResponse,
+  ItemVideoResponse,
+  ListingAnswersRequest,
+  ListingAnswersResponse,
   SaveListingResponse,
   UploadResponse,
 } from "@/types/api";
-import type { GeneratedListing, ImageQualityFeedback } from "@/types/listing";
+import type { GeneratedListing, ImageQualityFeedback, ListingVideo } from "@/types/listing";
+import type { RecheckListingRequest, RecheckListingResponse } from "@/types/api";
 
 import { getAuthUser, getAuthIdToken } from './authSession';
 import { getDeveloperNotionMode, getEffectiveAIProvider, getSelectedAIProvider } from "./storage";
 import { authDebugLog, authDebugWarn } from "../utils/authDebug";
 import { clearSignedImageUrlCacheForItem } from "../utils/signedImageUrlCache";
-import { getProviderApiKey, type AIProvider } from "./aiCredentials";
-import { isServerAIKeyFallbackAvailable } from "../utils/aiProviderAvailability";
+import { getProviderApiKey, isAIProvider, type AIProvider } from "./aiCredentials";
+import { isServerAIKeyFallbackAvailable, providerServerKeyConfigured as serverKeyConfiguredFor } from "../utils/aiProviderAvailability";
+import { providerDisplayName } from "../utils/aiSettingsState";
+import { videoExtension, videoMimeType } from "../utils/listingVideo";
 
 export class ApiError extends Error {
   constructor(
@@ -36,6 +42,8 @@ export class ApiError extends Error {
 
 const DEFAULT_TIMEOUT_MS = 25000;
 const ANALYZE_TIMEOUT_MS = 120000;
+// A 100 MB video on a slow uplink needs minutes, not seconds.
+const VIDEO_UPLOAD_TIMEOUT_MS = 300000;
 
 type RequestOptions = {
   timeoutMs?: number;
@@ -55,7 +63,7 @@ type ImageQualityErrorDetail = {
 function aiProviderFromErrorDetail(detail: unknown): AIProvider | undefined {
   if (typeof detail !== "object" || detail === null || !("provider" in detail)) return undefined;
   const provider = String((detail as { provider: unknown }).provider);
-  return provider === "gemini" || provider === "groq" ? provider : undefined;
+  return isAIProvider(provider) ? provider : undefined;
 }
 
 type MultipartFilenameResolver = (uri: string, index: number) => string;
@@ -178,7 +186,7 @@ async function aiRequestHeaders(): Promise<HeadersInit> {
   const health = await getHealth();
   const savedProvider = await getSelectedAIProvider();
   const provider = await getEffectiveAIProvider(health);
-  if (!provider || (provider !== "gemini" && provider !== "groq")) {
+  if (!provider || !isAIProvider(provider)) {
     throw new ApiError(
       "Choose an AI provider and add its API key in Settings before using AI.",
       503,
@@ -190,12 +198,8 @@ async function aiRequestHeaders(): Promise<HeadersInit> {
   const key = await getProviderApiKey(currentUser.uid, provider);
   const headers: Record<string, string> = { "X-ListFlick-AI-Provider": provider };
   const fallbackAvailable = isServerAIKeyFallbackAvailable(health, provider);
-  const backendProvider = health.ai_provider === "gemini" || health.ai_provider === "groq"
-    ? health.ai_provider
-    : "none";
-  const providerServerKeyConfigured = provider === "gemini"
-    ? Boolean(health.gemini_configured)
-    : Boolean(health.groq_configured);
+  const backendProvider = isAIProvider(health.ai_provider) ? health.ai_provider : "none";
+  const providerServerKeyConfigured = serverKeyConfiguredFor(health, provider);
   if (!key?.trim()) {
     if (fallbackAvailable) {
       console.log(
@@ -203,7 +207,7 @@ async function aiRequestHeaders(): Promise<HeadersInit> {
       );
       return headers;
     }
-    const label = provider[0].toUpperCase() + provider.slice(1);
+    const label = providerDisplayName(provider);
     throw new ApiError(
       `Add a ${label} API key in Settings to use ${label}.`,
       503,
@@ -328,6 +332,85 @@ export async function replaceItemImages(itemId: string, uris: string[]): Promise
   return result;
 }
 
+export type VideoUploadFrame = { uri: string; time: number };
+
+/**
+ * Multipart body for a video upload: the video `file`, candidate `frames` (JPEG stills),
+ * their `frame_times` in seconds and the video `duration`.
+ */
+export function createVideoFormData(video: ListingVideo, frames: VideoUploadFrame[] = []): FormData {
+  const formData = new FormData();
+  const extension = videoExtension(video.uri, video.mimeType);
+  formData.append("file", {
+    uri: video.uri,
+    name: `video.${extension}`,
+    type: videoMimeType(video.uri, video.mimeType),
+  } as unknown as Blob);
+  frames.forEach((frame, index) => {
+    formData.append("frames", {
+      uri: frame.uri,
+      name: `frame-${index + 1}.jpg`,
+      type: "image/jpeg",
+    } as unknown as Blob);
+  });
+  formData.append("frame_times", JSON.stringify(frames.map((frame) => frame.time)));
+  formData.append("duration", String(video.durationSeconds || 0));
+  return formData;
+}
+
+async function requestVideoUpload(
+  path: string,
+  method: "POST" | "PUT",
+  video: ListingVideo,
+  frames: VideoUploadFrame[],
+  fallbackMessage: string,
+  headers?: HeadersInit,
+): Promise<ItemVideoResponse> {
+  const response = await fetchWithAuth(`${API_BASE_URL}${path}`, {
+    method,
+    body: createVideoFormData(video, frames),
+  }, { timeoutMs: VIDEO_UPLOAD_TIMEOUT_MS, headers });
+  if (!response.ok) {
+    await throwApiError(response, fallbackMessage, { stringDetailOnly: true });
+  }
+  return response.json();
+}
+
+/** Add or replace the listing's one video. Frames are optional extra analysis input. */
+export async function uploadItemVideo(
+  itemId: string,
+  video: ListingVideo,
+  frames: VideoUploadFrame[] = [],
+): Promise<ItemVideoResponse> {
+  const result = await requestVideoUpload(`/api/items/${itemId}/video`, "PUT", video, frames, "Could not upload the video");
+  clearSignedImageUrlCacheForItem(itemId);
+  return result;
+}
+
+/** Start a listing from a video alone; the backend uses the sharpest frame as the cover. */
+export async function uploadVideoListing(
+  video: ListingVideo,
+  frames: VideoUploadFrame[],
+  idempotencyKey?: string,
+): Promise<ItemVideoResponse> {
+  return requestVideoUpload(
+    "/api/items/upload-video",
+    "POST",
+    video,
+    frames,
+    "Could not upload the video",
+    idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+  );
+}
+
+export async function deleteItemVideo(itemId: string): Promise<void> {
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/items/${itemId}/video`, { method: "DELETE" });
+  if (!response.ok) {
+    await throwApiError(response, "Could not remove the video");
+  }
+  clearSignedImageUrlCacheForItem(itemId);
+}
+
 export async function analyzeItem(itemId: string): Promise<ApiAnalyzeResponse> {
   const headers = await aiRequestHeaders();
   return requestJson(
@@ -445,6 +528,44 @@ export async function improveListing(payload: {
 }): Promise<ImproveListingResponse> {
   const headers = await aiRequestHeaders();
   return requestJson("/api/items/improve", "POST", "Could not improve listing", payload, { headers });
+}
+
+/** True when AI calls can run now: signed in, a provider chosen, and a device key or server fallback. */
+export async function canUseAIProvider(): Promise<boolean> {
+  const currentUser = getAuthUser();
+  if (!currentUser) return false;
+  const health = await getHealth().catch(() => null);
+  const provider = await getEffectiveAIProvider(health);
+  if (!provider || !isAIProvider(provider)) return false;
+  const key = await getProviderApiKey(currentUser.uid, provider);
+  return Boolean(key?.trim()) || isServerAIKeyFallbackAvailable(health, provider);
+}
+
+/** Re-check AI tips against the current text and (optionally) the item's stored photos. */
+export async function recheckListing(payload: RecheckListingRequest): Promise<RecheckListingResponse> {
+  const headers = await aiRequestHeaders();
+  return requestJson("/api/items/recheck", "POST", "Could not re-check listing", payload, {
+    headers,
+    timeoutMs: ANALYZE_TIMEOUT_MS,
+  });
+}
+
+/**
+ * Send the seller's answers (or edit-form changes) so the backend can re-price and revise the
+ * listing. Dismissing questions needs no AI call, so it skips the provider key headers.
+ */
+export async function answerListingQuestions(
+  itemId: string,
+  payload: ListingAnswersRequest
+): Promise<ListingAnswersResponse> {
+  const headers = payload.dismiss ? undefined : await aiRequestHeaders();
+  return requestJson(
+    `/api/items/${itemId}/answers`,
+    "POST",
+    "Could not update listing",
+    payload,
+    { headers, timeoutMs: ANALYZE_TIMEOUT_MS }
+  );
 }
 
 export async function getItem(itemId: string): Promise<ItemResponse> {

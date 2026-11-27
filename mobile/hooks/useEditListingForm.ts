@@ -1,8 +1,8 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, BackHandler } from "react-native";
 
-import { ApiError, improveListing } from "../services/api";
+import { ApiError, answerListingQuestions, improveListing } from "../services/api";
 import {
   getDraftListingEdits,
   getListingDefaults,
@@ -10,6 +10,13 @@ import {
   saveDraftDescription,
   saveDraftListingEdits,
 } from "../services/storage";
+import {
+  REPRICING_LABEL,
+  activePriceAfterAnswers,
+  listingChangesBetween,
+  shouldRepriceAfterEdit,
+  type RepriceFields,
+} from "../utils/listingQuestions";
 import { useAIInsightsEnabled } from "../state/AIInsightsContext";
 import { useAuth } from "../state/AuthContext";
 import {
@@ -35,6 +42,7 @@ import {
   showAIProviderCredentialInvalidPrompt,
   showAIProviderRequiredPrompt,
 } from "../utils/aiCredentialPrompt";
+import { providerDisplayName } from "../utils/aiSettingsState";
 import {
   applyListingImprovementToForm,
   buildAIImprovementListing,
@@ -48,9 +56,19 @@ import {
   listingImprovementHints,
   listingImprovementSummary,
   type EditListingFormState,
+  improvementSummary as chipImprovementSummary,
 } from "../utils/editListingForm";
 
 type EditListingField = keyof EditListingFormState;
+
+function repriceFieldsFromForm(form: EditListingFormState): RepriceFields {
+  return {
+    condition: form.condition,
+    flaws: form.flaws,
+    brandModel: form.brandModel,
+    accessories: form.accessories,
+  };
+}
 
 function sameDescriptionDetails(
   left: ReturnType<typeof descriptionDetailsFromForm>,
@@ -83,8 +101,18 @@ export function useEditListingForm() {
   );
   const [improving, setImproving] = useState(false);
   const [improvementSummary, setImprovementSummary] = useState("");
-  const previousDetails = useRef(descriptionDetailsFromForm(form));
   const improvementHints = listingImprovementHints(missingChecklist, insightsEnabled);
+  const [improvingAction, setImprovingAction] = useState<ImprovementAction | null>(null);
+  // One plain line under the description saying what the last AI improvement changed.
+  const [improveSummary, setImproveSummary] = useState<string | null>(null);
+  const [repricing, setRepricing] = useState(false);
+  const savingRef = useRef(false);
+  // Save can wait on a slow price check; these keep a late result from popping an extra screen
+  // or writing into whichever listing the workspace holds by then.
+  const mountedRef = useRef(true);
+  const previousDetails = useRef(descriptionDetailsFromForm(form));
+  // What the seller started from, so Save can tell which price-relevant fields changed.
+  const baselineRepriceFields = useRef(repriceFieldsFromForm(form));
 
   const setField = useCallback(<T extends EditListingField>(field: T, value: EditListingFormState[T]) => {
     setImprovementSummary("");
@@ -93,6 +121,20 @@ export function useEditListingForm() {
 
   const identityRef = useRef(useListingIdentity());
   identityRef.current = useListingIdentity();
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!repricing) return;
+    // Hold Android back while the price check runs, the same as the disabled Preview button.
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => subscription.remove();
+  }, [repricing]);
 
   useEffect(() => {
     let active = true;
@@ -105,12 +147,16 @@ export function useEditListingForm() {
     
     // For the form, we should ideally use the context state if alreadyHydrated is true,
     // but the `listing` param state is mostly fine since edit-listing doesn't use the large fields like imageQualityFeedback.
-    setForm(createInitialEditListingForm({ listing, parsedDescription }));
+    const initialForm = createInitialEditListingForm({ listing, parsedDescription });
+    baselineRepriceFields.current = repriceFieldsFromForm(initialForm);
+    setForm(initialForm);
 
     Promise.all([getDraftListingEdits(draftId), getListingDefaults()]).then(([draft, defaults]) => {
       if (!active) return;
       hydrateWorkspace(applyDraftListingEdits(listing, draft));
-      setForm(createInitialEditListingForm({ listing, parsedDescription, draft, defaults }));
+      const hydratedForm = createInitialEditListingForm({ listing, parsedDescription, draft, defaults });
+      baselineRepriceFields.current = repriceFieldsFromForm(hydratedForm);
+      setForm(hydratedForm);
     });
 
     return () => {
@@ -151,9 +197,17 @@ export function useEditListingForm() {
   );
 
   const runImprovement = useCallback(
-    async (action: ImprovementAction, customInstruction = "") => {
+    /**
+     * `from` says where the seller asked: a suggestion card next to a field reports the
+     * fields it changed right there; the Improve with AI chips report under the chips.
+     */
+    async (action: ImprovementAction, customInstruction = "", from: "chips" | "suggestion" = "chips") => {
       if (!insightsEnabled || improving) return;
       setImproving(true);
+      setImprovingAction(action);
+      setImproveSummary(null);
+      setImprovementSummary("");
+      const before = { title: form.title, description: form.description, price: form.priceInput };
       try {
         const result = await improveListing({
           item_id: listing.itemId,
@@ -170,7 +224,9 @@ export function useEditListingForm() {
         );
 
         setForm(appliedImprovement.form);
-        setImprovementSummary(listingImprovementSummary(appliedImprovement.changedFields));
+        if (from === "suggestion") {
+          setImprovementSummary(listingImprovementSummary(appliedImprovement.changedFields));
+        }
         updateDetails({
           title: appliedImprovement.form.title,
           description: appliedImprovement.form.description,
@@ -186,18 +242,32 @@ export function useEditListingForm() {
           result.listing.price_suggestion.max ||
           result.listing.price_suggestion.min ||
           0;
+        let nextPriceText: string | null = null;
         if (nextPrice > 0 && action === "make_price_more_competitive") {
           const rounded = Math.round(nextPrice);
-          setField("priceInput", String(rounded));
-          updatePricing({ activePrice: rounded, activePriceSource: "ai_recommended" });
+          nextPriceText = String(rounded);
+          setField("priceInput", nextPriceText);
+          // Move the tiers too, so Fast / Recommended / High Ask match the new price.
+          updatePricing({
+            activePrice: rounded,
+            activePriceSource: "ai_recommended",
+            priceSuggestion: result.listing.price_suggestion,
+          });
         }
+        if (from === "chips") setImproveSummary(
+          chipImprovementSummary(action, before, {
+            title: result.listing.title,
+            description: finalDescription,
+            price: nextPriceText ?? before.price,
+          })
+        );
       } catch (e) {
         if (e instanceof ApiError && e.code === "AI_PROVIDER_SELECTION_REQUIRED") {
           showAIProviderRequiredPrompt();
           return;
         }
         if (e instanceof ApiError && e.code === "AI_CREDENTIAL_REQUIRED" && e.provider) {
-          showAIKeyRequiredPrompt(e.provider, `Add your ${e.provider === "gemini" ? "Gemini" : "Groq"} API key to improve this listing.`);
+          showAIKeyRequiredPrompt(e.provider, `Add your ${providerDisplayName(e.provider)} API key to improve this listing.`);
           return;
         }
         if (e instanceof ApiError && e.code === "AI_PROVIDER_CREDENTIAL_INVALID" && e.provider) {
@@ -208,6 +278,7 @@ export function useEditListingForm() {
         Alert.alert("Improve Listing", message);
       } finally {
         setImproving(false);
+        setImprovingAction(null);
       }
     },
     [
@@ -227,13 +298,120 @@ export function useEditListingForm() {
     ]
   );
 
+  /**
+   * When condition, flaws, brand/model or included accessories changed and the price was not set by
+   * hand, ask the backend to re-price and fold the new facts into the description before saving.
+   */
+  const repriceForChanges = useCallback(
+    async (current: EditListingFormState) => {
+      const changes = listingChangesBetween(baselineRepriceFields.current, repriceFieldsFromForm(current));
+      if (!shouldRepriceAfterEdit(changes, activePriceSource, { itemId: listing.itemId, insightsEnabled })) {
+        return null;
+      }
+      const activePrice = Number(current.priceInput) || 0;
+      setRepricing(true);
+      const result = await answerListingQuestions(listing.itemId!, {
+        changes,
+        listing: buildAIImprovementListing(current, pricing, listingQuality),
+        active_price: activePrice,
+        active_price_source: activePriceSource ?? null,
+      });
+      const profile = await getUserProfile(user?.uid, authProfileDefaults);
+      const nextPrice = activePriceAfterAnswers(result, { activePrice, activePriceSource });
+      updateInsights({
+        listingQuality: result.listing.listing_quality ?? defaultListingQuality(),
+        missingChecklist: result.missing_checklist ?? missingChecklist,
+      });
+      return {
+        form: {
+          ...current,
+          title: result.listing.title || current.title,
+          description: applyUserProfileToDescription(result.listing.description, profile),
+          category: result.listing.marketplace_category || current.category,
+          priceInput: nextPrice.activePrice > 0 ? String(nextPrice.activePrice) : current.priceInput,
+        },
+        activePriceSource: nextPrice.activePriceSource,
+        priceSuggestion: result.listing.price_suggestion,
+      };
+    },
+    [
+      activePriceSource,
+      authProfileDefaults,
+      insightsEnabled,
+      listing.itemId,
+      listingQuality,
+      missingChecklist,
+      pricing,
+      updateInsights,
+      user?.uid,
+    ]
+  );
+
   const saveEdits = useCallback(async () => {
-    await saveDraftListingEdits(draftId, formToDraftListingEdits(form, activePriceSource));
-    await saveDraftDescription(draftId, form.description);
-    updateDetails(formToWorkspaceDetails(form));
-    updatePricing(formToWorkspacePricing(form, activePriceSource));
+    if (repricing || savingRef.current) return;
+    savingRef.current = true;
+    const startItemId = listing.itemId;
+    let nextForm = form;
+    let nextPriceSource = activePriceSource;
+    let nextSuggestion = pricing ?? undefined;
+    let repriceError: unknown = null;
+
+    try {
+      const repriced = await repriceForChanges(form);
+      if (repriced) {
+        nextForm = repriced.form;
+        nextPriceSource = repriced.activePriceSource;
+        nextSuggestion = repriced.priceSuggestion;
+      }
+    } catch (e) {
+      // Never lose the seller's edits because the price check failed; save them and explain after.
+      repriceError = e;
+    } finally {
+      setRepricing(false);
+    }
+
+    try {
+      await saveDraftListingEdits(draftId, {
+        ...formToDraftListingEdits(nextForm, nextPriceSource),
+        priceSuggestion: nextSuggestion,
+      });
+      await saveDraftDescription(draftId, nextForm.description);
+    } catch {
+      savingRef.current = false;
+      if (mountedRef.current) {
+        Alert.alert("Couldn't save", "Your edits could not be saved. Try again.");
+      }
+      return;
+    }
+    savingRef.current = false;
+    // The draft is saved by id either way. Only touch the shared workspace and navigation if the
+    // seller is still on this listing's edit screen.
+    if (!mountedRef.current || identityRef.current.itemId !== startItemId) return;
+    updateDetails(formToWorkspaceDetails(nextForm));
+    updatePricing({
+      ...formToWorkspacePricing(nextForm, nextPriceSource),
+      ...(nextSuggestion ? { priceSuggestion: nextSuggestion } : {}),
+    });
     router.back();
-  }, [activePriceSource, draftId, form, updateDetails, updatePricing]);
+
+    if (!repriceError) return;
+    if (repriceError instanceof ApiError && repriceError.code === "AI_PROVIDER_SELECTION_REQUIRED") {
+      showAIProviderRequiredPrompt();
+      return;
+    }
+    if (repriceError instanceof ApiError && repriceError.code === "AI_CREDENTIAL_REQUIRED" && repriceError.provider) {
+      showAIKeyRequiredPrompt(
+        repriceError.provider,
+        `Your edits are saved. Add your ${providerDisplayName(repriceError.provider)} API key to re-check the price.`
+      );
+      return;
+    }
+    if (repriceError instanceof ApiError && repriceError.code === "AI_PROVIDER_CREDENTIAL_INVALID" && repriceError.provider) {
+      showAIProviderCredentialInvalidPrompt(repriceError.provider);
+      return;
+    }
+    Alert.alert("Edits saved", "Your edits are saved, but the price could not be re-checked right now.");
+  }, [activePriceSource, draftId, form, listing.itemId, pricing, repriceForChanges, repricing, updateDetails, updatePricing]);
 
   return {
     ...form,
@@ -242,6 +420,10 @@ export function useEditListingForm() {
     insightsEnabled,
     improving,
     improvementSummary,
+    improvingAction,
+    improveSummary,
+    repricing,
+    repricingLabel: repricing ? REPRICING_LABEL : null,
     brandHint: improvementHints.buyerTrust,
     detailsHint: improvementHints.descriptionDetails,
     setTitle: (value: string) => setField("title", value),

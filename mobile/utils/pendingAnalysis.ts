@@ -9,10 +9,22 @@ export type PendingAnalysisPhase =
   | "terminal_failed"
   | "completed";
 
+/** The listing's video, copied next to the photos so analysis can resume after a restart. */
+export type PendingAnalysisVideo = {
+  uri: string;
+  durationSeconds: number;
+  mimeType?: string;
+  sizeBytes?: number;
+  frames: { uri: string; time: number }[];
+  /** Set once the backend has the video, so a resume does not upload it twice. */
+  uploaded?: boolean;
+};
+
 export type PendingAnalysisOperation = {
   operationId: string;
   phase: PendingAnalysisPhase;
   imageUris: string[];
+  video?: PendingAnalysisVideo;
   itemId?: string;
   lastErrorCode?: string;
   createdAt: string;
@@ -26,7 +38,7 @@ function fallbackOperationId(now: number, random: number): string {
 
 export function createPendingAnalysisOperation(
   imageUris: string[],
-  options: { now?: number; random?: number; operationId?: string } = {}
+  options: { now?: number; random?: number; operationId?: string; video?: PendingAnalysisVideo } = {}
 ): PendingAnalysisOperation {
   const now = options.now ?? Date.now();
   const cryptoObject = globalThis.crypto as { randomUUID?: () => string } | undefined;
@@ -38,6 +50,7 @@ export function createPendingAnalysisOperation(
     operationId,
     phase: "selected",
     imageUris: [...imageUris],
+    ...(options.video ? { video: { ...options.video, frames: [...options.video.frames] } } : {}),
     createdAt: timestamp,
     updatedAt: timestamp,
     expiresAt: new Date(now + PENDING_ANALYSIS_RETENTION_MS).toISOString(),
@@ -46,7 +59,7 @@ export function createPendingAnalysisOperation(
 
 export function updatePendingAnalysisOperation(
   operation: PendingAnalysisOperation,
-  update: Partial<Pick<PendingAnalysisOperation, "phase" | "itemId" | "lastErrorCode">>,
+  update: Partial<Pick<PendingAnalysisOperation, "phase" | "itemId" | "lastErrorCode" | "video">>,
   now: number = Date.now()
 ): PendingAnalysisOperation {
   return {
@@ -68,6 +81,7 @@ export function parsePendingAnalysisOperation(raw: string | null): PendingAnalys
       || typeof value.createdAt !== "string"
       || typeof value.updatedAt !== "string"
       || typeof value.expiresAt !== "string"
+      || (value.video !== undefined && !isPendingVideo(value.video))
     ) {
       return null;
     }
@@ -75,6 +89,55 @@ export function parsePendingAnalysisOperation(raw: string | null): PendingAnalys
   } catch {
     return null;
   }
+}
+
+/** Unfinished listings, newest first. Invalid entries are dropped so one bad record can't hide the rest. */
+export function parsePendingAnalysisOperations(raw: string | null): PendingAnalysisOperation[] {
+  if (!raw) return [];
+  let values: unknown;
+  try {
+    values = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(values)) return [];
+  return sortNewestFirst(
+    values
+      .map((value) => parsePendingAnalysisOperation(JSON.stringify(value)))
+      .filter((operation): operation is PendingAnalysisOperation => operation !== null)
+  );
+}
+
+function sortNewestFirst(operations: PendingAnalysisOperation[]): PendingAnalysisOperation[] {
+  return [...operations].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
+export function upsertPendingAnalysisOperation(
+  operations: PendingAnalysisOperation[],
+  operation: PendingAnalysisOperation
+): PendingAnalysisOperation[] {
+  return sortNewestFirst([...operations.filter((item) => item.operationId !== operation.operationId), operation]);
+}
+
+export function removePendingAnalysisOperation(
+  operations: PendingAnalysisOperation[],
+  operationId: string
+): PendingAnalysisOperation[] {
+  return operations.filter((item) => item.operationId !== operationId);
+}
+
+function isPendingVideo(value: unknown): value is PendingAnalysisVideo {
+  if (!value || typeof value !== "object") return false;
+  const video = value as Partial<PendingAnalysisVideo>;
+  return typeof video.uri === "string"
+    && typeof video.durationSeconds === "number"
+    && Array.isArray(video.frames)
+    && video.frames.every((frame) => typeof frame?.uri === "string" && typeof frame?.time === "number");
+}
+
+/** A listing needs at least one photo or a video. */
+export function pendingOperationHasMedia(operation: Pick<PendingAnalysisOperation, "imageUris" | "video">): boolean {
+  return operation.imageUris.length > 0 || Boolean(operation.video);
 }
 
 export function isPendingAnalysisExpired(
@@ -103,11 +166,24 @@ export function rebasePendingAnalysisOperation(
   operation: PendingAnalysisOperation,
   documentDirectoryUri: string
 ): PendingAnalysisOperation {
+  const rebase = (uri: string) => rebasePendingAnalysisImageUri(uri, documentDirectoryUri);
   return {
     ...operation,
-    imageUris: operation.imageUris.map((uri) => rebasePendingAnalysisImageUri(uri, documentDirectoryUri)),
+    imageUris: operation.imageUris.map(rebase),
+    ...(operation.video
+      ? {
+        video: {
+          ...operation.video,
+          uri: rebase(operation.video.uri),
+          frames: operation.video.frames.map((frame) => ({ ...frame, uri: rebase(frame.uri) })),
+        },
+      }
+      : {}),
   };
 }
+
+export const MISSING_PENDING_VIDEO_MESSAGE =
+  "The video for this listing is no longer on this device. Discard it and record the video again.";
 
 export const MISSING_PENDING_PHOTOS_MESSAGE =
   "The photos for this listing are no longer on this device. Discard it and take the photos again.";
@@ -121,5 +197,14 @@ export function assertPendingPhotosAvailable(
 ): void {
   if (uris.some((uri) => uri.startsWith("file://") && !fileExists(uri))) {
     throw new Error(MISSING_PENDING_PHOTOS_MESSAGE);
+  }
+}
+
+export function assertPendingVideoAvailable(
+  video: PendingAnalysisVideo | undefined,
+  fileExists: (uri: string) => boolean
+): void {
+  if (video && !video.uploaded && video.uri.startsWith("file://") && !fileExists(video.uri)) {
+    throw new Error(MISSING_PENDING_VIDEO_MESSAGE);
   }
 }

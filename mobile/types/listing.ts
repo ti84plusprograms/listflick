@@ -18,6 +18,25 @@ export interface ListingQuality {
   readiness_label: ReadinessLabel;
   score_breakdown: Record<string, number>;
   improvement_suggestions: string[];
+  /** Tips the seller has finished, by text. Kept with the listing by the live checklist. */
+  completed_suggestions?: string[];
+  /** Photo and text signatures the tips were last re-checked against. */
+  checked_media?: string;
+  checked_text?: string;
+}
+
+/** One unknown detail that would move the price by more than about 25%. */
+export interface PriceQuestion {
+  question: string;
+  why: string;
+  options: string[];
+}
+
+/** Something buyers of this kind of item always ask that the photos cannot answer. */
+export interface BuyerQuestion {
+  question: string;
+  options: string[];
+  affects_price: boolean;
 }
 
 export interface VisionAnalysis {
@@ -28,6 +47,14 @@ export interface VisionAnalysis {
   confidence: number;
   detected_attributes: string[];
   visible_defects: string[];
+  model?: string;
+  variant?: string;
+  identified_from?: string;
+  identification_confidence?: number;
+  standard_specs?: string[];
+  price_question?: PriceQuestion | null;
+  buyer_questions?: BuyerQuestion[];
+  seller_facts?: string[];
 }
 
 export interface GeneratedListing {
@@ -37,6 +64,8 @@ export interface GeneratedListing {
   tags: string[];
   price_suggestion: PriceSuggestion;
   listing_quality: ListingQuality;
+  price_question?: PriceQuestion | null;
+  buyer_questions?: BuyerQuestion[];
 }
 
 export type ImprovementAction =
@@ -104,6 +133,24 @@ export interface NotionSyncStatus {
   last_attempt_at?: string | null;
   last_success_at?: string | null;
   last_error?: string | null;
+  /** Non-fatal problems, e.g. "Video is too large for your Notion plan, so it wasn't uploaded." */
+  warnings?: string[];
+}
+
+/**
+ * The listing's one video. On Facebook Marketplace it goes in the separate
+ * "Add video" slot, so the cover always stays a photo.
+ */
+export interface ListingVideo {
+  /** Local file URI before upload, or the backend path `/api/items/{id}/video/{videoId}`. */
+  uri: string;
+  durationSeconds: number;
+  mimeType?: string;
+  sizeBytes?: number;
+  /** Backend video id once uploaded. */
+  videoId?: string;
+  /** Local still for thumbnails (the player shows the video itself). */
+  posterUri?: string;
 }
 
 export interface SavedListing {
@@ -111,6 +158,7 @@ export interface SavedListing {
   itemId: string;
   imageUri?: string;
   imageUris?: string[];
+  video?: ListingVideo | null;
   title: string;
   description: string;
   category: string;
@@ -179,6 +227,7 @@ export interface ListingWorkspaceState {
   listingQuality?: ListingQuality | null;
   missingChecklist: ChecklistItem[];
   imageQualityFeedback: ImageQualityFeedback[];
+  video?: ListingVideo | null;
 }
 
 export interface DraftListingEdits {
@@ -188,9 +237,11 @@ export interface DraftListingEdits {
   condition?: string;
   activePrice?: number;
   activePriceSource?: ActivePriceSource;
+  priceSuggestion?: PriceSuggestion;
   negotiable?: boolean;
   imageUris?: string[];
   imageQualityFeedback?: ImageQualityFeedback[];
+  video?: ListingVideo | null;
   brandModel?: string;
   color?: string;
   material?: string;

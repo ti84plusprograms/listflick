@@ -1,6 +1,11 @@
 import * as SecureStore from "expo-secure-store";
 
-export type AIProvider = "gemini" | "groq";
+export const AI_PROVIDERS = ["gemini", "groq", "claude"] as const;
+export type AIProvider = (typeof AI_PROVIDERS)[number];
+
+export function isAIProvider(value: unknown): value is AIProvider {
+  return typeof value === "string" && (AI_PROVIDERS as readonly string[]).includes(value);
+}
 
 // SecureStore key names may contain only alphanumeric characters, ".", "-", and "_".
 const KEY_PREFIX = "listflick_ai_key_";
@@ -34,5 +39,5 @@ export async function deleteProviderApiKey(uid: string, provider: AIProvider): P
 }
 
 export async function clearProviderApiKeys(uid: string): Promise<void> {
-  await Promise.all((["gemini", "groq"] as const).map((provider) => deleteProviderApiKey(uid, provider)));
+  await Promise.all(AI_PROVIDERS.map((provider) => deleteProviderApiKey(uid, provider)));
 }
