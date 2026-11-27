@@ -84,3 +84,42 @@ export function isPendingAnalysisExpired(
   const expiresAt = Date.parse(operation.expiresAt);
   return !Number.isFinite(expiresAt) || expiresAt <= now;
 }
+
+// Photos are copied to `<Documents>/pending-analysis/<operationId>/<file>` and
+// stored as absolute URIs. iOS moves the app's data container to a new path on
+// every update or reinstall, so a stored URI can name a container that no
+// longer exists. Rebase it onto the current document directory on read.
+const PENDING_ANALYSIS_PATH_PATTERN = /\/pending-analysis\/([^/?#]+\/[^/?#]+)$/;
+
+export function rebasePendingAnalysisImageUri(uri: string, documentDirectoryUri: string): string {
+  if (!uri.startsWith("file://")) return uri;
+  const match = PENDING_ANALYSIS_PATH_PATTERN.exec(uri);
+  if (!match) return uri;
+  const base = documentDirectoryUri.endsWith("/") ? documentDirectoryUri : `${documentDirectoryUri}/`;
+  return `${base}pending-analysis/${match[1]}`;
+}
+
+export function rebasePendingAnalysisOperation(
+  operation: PendingAnalysisOperation,
+  documentDirectoryUri: string
+): PendingAnalysisOperation {
+  return {
+    ...operation,
+    imageUris: operation.imageUris.map((uri) => rebasePendingAnalysisImageUri(uri, documentDirectoryUri)),
+  };
+}
+
+export const MISSING_PENDING_PHOTOS_MESSAGE =
+  "The photos for this listing are no longer on this device. Discard it and take the photos again.";
+
+// React Native's networking never settles a multipart fetch whose file part is
+// missing, so the user would wait for the request timeout and see a misleading
+// server error. Check local files first and fail with a clear message.
+export function assertPendingPhotosAvailable(
+  uris: string[],
+  fileExists: (uri: string) => boolean
+): void {
+  if (uris.some((uri) => uri.startsWith("file://") && !fileExists(uri))) {
+    throw new Error(MISSING_PENDING_PHOTOS_MESSAGE);
+  }
+}

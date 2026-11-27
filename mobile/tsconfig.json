@@ -2,6 +2,10 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // React Native 0.87+ Strict TypeScript API opt-out (removed after RN 0.89):
+    // app code and react-native-draggable-grid (ships .tsx) still use the legacy types.
+    "customConditions": ["react-native", "react-native-legacy-deep-imports"],
+    "types": ["node"],
     "paths": {
       "@/*": ["./*"]
     }

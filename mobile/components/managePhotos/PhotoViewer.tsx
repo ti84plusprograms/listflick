@@ -289,10 +289,10 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   centeredOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   errorOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
     gap: theme.spacing.sm,

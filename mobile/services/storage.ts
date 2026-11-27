@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Paths } from "expo-file-system";
 import { getApp } from "@react-native-firebase/app";
 import { getAuth } from "@react-native-firebase/auth";
 
@@ -8,6 +9,7 @@ import { scopedStorageKey } from "../utils/storageScope";
 import {
   isPendingAnalysisExpired,
   parsePendingAnalysisOperation,
+  rebasePendingAnalysisOperation,
   type PendingAnalysisOperation,
 } from "../utils/pendingAnalysis";
 import { deletePendingAnalysisImages } from "../utils/pendingAnalysisFiles";
@@ -308,7 +310,8 @@ export async function getPendingAnalysisOperation(): Promise<PendingAnalysisOper
     }
     return null;
   }
-  return operation;
+  // Stored photo URIs may name an old app container after an update or reinstall.
+  return rebasePendingAnalysisOperation(operation, Paths.document.uri);
 }
 
 export async function savePendingAnalysisOperation(operation: PendingAnalysisOperation): Promise<void> {

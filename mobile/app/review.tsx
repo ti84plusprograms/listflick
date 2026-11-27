@@ -380,7 +380,7 @@ export default function ReviewScreen() {
         Alert.alert("Not supported", "Saving photos is not supported on web.");
         return;
       }
-      const MediaLibrary = await import("expo-media-library");
+      const MediaLibrary = await import("expo-media-library/legacy");
       const { status } = await MediaLibrary.requestPermissionsAsync(true, ["photo"]);
       if (status !== "granted") {
         Alert.alert("Permission needed", "We need access to your photos to save them.");
@@ -867,7 +867,7 @@ const styles = StyleSheet.create({
     color: theme.colors.textPrimary,
   },
   overflowOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.2)",
     zIndex: 100,
   },

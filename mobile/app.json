@@ -5,14 +5,8 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "splash": {
-      "image": "./assets/images/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
-    },
     "scheme": "listingassistant",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.listingassistant.app",
@@ -32,6 +26,15 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/logo-mark.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
       [
         "expo-camera",
         {
@@ -74,7 +77,8 @@
           }
         }
       ],
-      "./plugins/withFirebaseStaticFix.js"
+      "./plugins/withFirebaseStaticFix.js",
+      "./plugins/withFirebaseSceneInit.js"
     ],
     "experiments": {
       "typedRoutes": true

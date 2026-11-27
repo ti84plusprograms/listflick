@@ -10,17 +10,14 @@ authenticate against the repository owner's project by default.
    `com.listingassistant.app`, or first replace those identifiers with your own.
 3. Download `google-services.json` and `GoogleService-Info.plist` into
    `mobile/config/`. These files are ignored by Git.
-4. Copy the same files into the checked-in native projects:
-
-   ```bash
-   cp mobile/config/google-services.json mobile/android/app/google-services.json
-   cp mobile/config/GoogleService-Info.plist mobile/ios/ListingAssistant/GoogleService-Info.plist
-   ```
+4. Run `npx expo prebuild --clean` in `mobile/` (or `npx expo run:ios`, which
+   prebuilds when `ios/` is missing). Prebuild copies both files into the
+   generated native projects.
 
 5. Set `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` and
    `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` in `mobile/.env` if Google Sign-In is
-   enabled. Replace the placeholder `iosUrlScheme` in `mobile/app.json` with
-   `REVERSED_CLIENT_ID` from your plist. When these variables are absent, the
+   enabled. `mobile/app.config.js` reads the Google Sign-In `iosUrlScheme`
+   from `REVERSED_CLIENT_ID` in your plist (falling back to a placeholder). When these variables are absent, the
    app hides Google Sign-In.
 6. For Firebase CLI commands, copy `.firebaserc.example` to `.firebaserc` and
    replace its project ID. Never commit the resulting file.
