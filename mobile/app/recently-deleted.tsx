@@ -99,9 +99,9 @@ export default function RecentlyDeletedScreen() {
   };
 
   return (
-    <View style={styles.container} testID="recently-deleted-screen">
+    <View style={styles.container}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
-        <Pressable onPress={() => router.back()} style={styles.headerButton} testID="recently-deleted-back">
+        <Pressable onPress={() => router.back()} style={styles.headerButton}>
           <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
           <Text style={styles.headerButtonText}>Back</Text>
         </Pressable>

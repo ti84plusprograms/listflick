@@ -97,7 +97,7 @@ export function PhotoViewer({
       onRequestClose={closeViewer}
       onDismiss={closeViewer}
     >
-      <View style={styles.container} testID="photo-viewer">
+      <View style={styles.container}>
         <FlatList
           key={`photo-viewer-${width}`}
           ref={listRef}
@@ -179,7 +179,6 @@ export function PhotoViewer({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close photo viewer"
-            testID="photo-viewer-close"
             hitSlop={12}
             onPress={closeViewer}
             style={styles.closeButton}
@@ -197,7 +196,6 @@ export function PhotoViewer({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Previous photo"
-            testID="photo-viewer-previous"
             disabled={selectedIndex === 0}
             onPress={() => goToIndex(selectedIndex - 1)}
             style={[styles.navigationButton, selectedIndex === 0 && styles.disabledButton]}
@@ -208,7 +206,6 @@ export function PhotoViewer({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Next photo"
-            testID="photo-viewer-next"
             disabled={selectedIndex === photos.length - 1}
             onPress={() => goToIndex(selectedIndex + 1)}
             style={[

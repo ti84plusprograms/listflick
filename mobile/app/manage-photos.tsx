@@ -324,13 +324,12 @@ export default function ManagePhotosScreen() {
   }
 
   return (
-    <View style={styles.container} testID="manage-photos-screen">
+    <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <Pressable
           onPress={() => router.back()}
           style={styles.headerButton}
-          testID="manage-photos-back"
           accessibilityLabel="Back to listing preview"
         >
           <Ionicons name="chevron-back" size={20} color={theme.colors.textPrimary} />
@@ -381,7 +380,6 @@ export default function ManagePhotosScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Add photos"
-                    testID="manage-photos-add"
                     onPressIn={() => suppressGridPress(item.key)}
                     onPress={() => {
                       suppressGridPress(item.key);
@@ -401,7 +399,6 @@ export default function ManagePhotosScreen() {
               <View key={item.key} style={styles.gridItem}>
                 <View
                   style={styles.imageWrapper}
-                  testID={`manage-photos-photo-${index + 1}`}
                   accessible
                   accessibilityRole="button"
                   accessibilityLabel={`${imageState === "error" ? "Retry" : imageState === "loading" ? "Loading" : "Open"} photo ${index + 1} of ${photos.length}`}
@@ -467,7 +464,6 @@ export default function ManagePhotosScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Remove photo ${index + 1}`}
-                    testID={`manage-photos-remove-${index + 1}`}
                     hitSlop={8}
                     onPressIn={() => suppressGridPress(item.key)}
                     style={styles.removeButton}
@@ -544,7 +540,6 @@ export default function ManagePhotosScreen() {
           style={[styles.primaryButton, saving && styles.primaryButtonDisabled]}
           onPress={savePhotos}
           disabled={saving}
-          testID="manage-photos-done"
           accessibilityLabel={saving ? "Saving photos" : "Save photo changes"}
         >
           <Text style={styles.primaryButtonText}>{saving ? "Saving..." : "Done"}</Text>

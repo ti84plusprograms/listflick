@@ -7,10 +7,6 @@ function source(path: string): string {
 
 const eas = JSON.parse(source("../eas.json"));
 const app = JSON.parse(source("../app.json"));
-const dynamicAppConfig = source("../app.config.js");
-const runtimeConfig = source("../constants/config.ts");
-const rootLayout = source("../app/_layout.tsx");
-const storage = source("../services/storage.ts");
 const login = source("../app/(auth)/login.tsx");
 const gitignore = source("../../.gitignore");
 const render = source("../../render.yaml");
@@ -24,24 +20,6 @@ if (eas.build.preview.env?.EXPO_PUBLIC_API_URL || eas.build.production.env?.EXPO
 }
 if (app.expo.extra?.eas?.projectId) {
   throw new Error("The public template must not target the repository owner's EAS project");
-}
-if (!dynamicAppConfig.includes("LISTFLICK_E2E_API_URL must use HTTP on a loopback host")) {
-  throw new Error("The E2E API manifest override must reject non-loopback URLs");
-}
-if (!runtimeConfig.includes("__DEV__ ? extra?.e2eApiUrl : undefined")) {
-  throw new Error("The E2E API manifest override must be ignored outside development builds");
-}
-if (!dynamicAppConfig.includes("LISTFLICK_E2E_RESET_AI_SETTINGS requires LISTFLICK_E2E_API_URL")) {
-  throw new Error("The E2E AI settings reset must require the guarded loopback API override");
-}
-if (!runtimeConfig.includes("__DEV__ && Boolean(developmentE2EUrl)")) {
-  throw new Error("The E2E AI settings reset must be ignored outside guarded development builds");
-}
-for (const expected of ["E2E_RESET_AI_SETTINGS", "clearSelectedAIProvider()", "clearProviderApiKeys(user.uid)"]) {
-  if (!rootLayout.includes(expected)) throw new Error(`The guarded E2E bootstrap is missing ${expected}`);
-}
-if (!storage.includes("AsyncStorage.removeItem(scopedKey(AI_PROVIDER_PREFERENCE_KEY))")) {
-  throw new Error("The E2E reset must remove only the scoped provider preference");
 }
 for (const expected of ["EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID", "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID"]) {
   if (!login.includes(expected)) throw new Error(`Google Sign-In must use ${expected}`);
@@ -76,8 +54,6 @@ if (!firebaseRcExample.includes("replace-with-your-firebase-project-id")) {
 const publicRuntimeConfiguration = [
   JSON.stringify(eas),
   JSON.stringify(app),
-  dynamicAppConfig,
-  runtimeConfig,
   login,
   render,
   firebaseConfig,

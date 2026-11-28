@@ -83,12 +83,6 @@ cd mobile && npm test
 make smoke
 ```
 
-ListFlick also includes six local Maestro flows for authentication and
-onboarding, provider configuration, listing creation, explicit AI-assisted
-field improvement, photo management, and server-backed image download. They
-use an isolated deterministic backend and do not call any AI provider. See the
-[local Maestro UI guide](docs/how-to/maestro-create-listing.md).
-
 See [Local development](docs/tutorials/local-development.md) for the complete
 setup and [Makefile commands](docs/reference/makefile-commands.md) for the
 repository command reference.

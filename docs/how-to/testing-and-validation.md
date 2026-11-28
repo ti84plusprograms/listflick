@@ -5,13 +5,6 @@ The mobile command includes TypeScript checking and the checked-in `tsx`
 architecture/state tests. Run `cd mobile && npx tsc --noEmit` explicitly when
 diagnosing TypeScript changes.
 
-For the local authentication and onboarding, provider-configuration,
-listing-creation, AI-improvement, photo-management, and image-download UI flows,
-follow
-[Run the local Maestro UI flows](maestro-create-listing.md) and
-[Authentication and onboarding Maestro flow](maestro-auth-onboarding.md). They
-use an isolated deterministic backend and do not call any AI provider.
-
 For API smoke validation, run `make backend` in one terminal and `make smoke`
 in another. The smoke script checks health and unauthenticated endpoint
 rejection; it does not replace an authenticated test with a real Firebase user,

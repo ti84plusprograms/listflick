@@ -1,7 +1,4 @@
-from pathlib import Path
-from urllib.parse import urlparse
-
-from pydantic import field_validator, model_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SUPPORTED_GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
@@ -13,9 +10,6 @@ SUPPORTED_AI_PROVIDERS = ("gemini", "groq", "claude")
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_env: str = "development"
-    e2e_mode: bool = False
-    e2e_require_byok_ui: bool = False
     ai_provider: str = "groq"
     allow_server_ai_key_fallback: bool = False
 
@@ -42,7 +36,6 @@ class Settings(BaseSettings):
     analysis_max_attempts: int = 3
     pending_item_retention_hours: int = 168
     notion_sync_lease_seconds: int = 300
-    upload_dir: str = "./uploads"
     # One video per listing (Facebook Marketplace's separate "Add video" slot).
     max_video_upload_mb: int = 100
 
@@ -103,34 +96,6 @@ class Settings(BaseSettings):
         if value <= 0:
             raise ValueError("Processing lease and retention settings must be positive")
         return value
-
-    @model_validator(mode="after")
-    def validate_e2e_isolation(self) -> "Settings":
-        if self.e2e_require_byok_ui and not self.e2e_mode:
-            raise ValueError("E2E_REQUIRE_BYOK_UI requires E2E_MODE=true")
-        if not self.e2e_mode:
-            return self
-
-        if self.app_env != "e2e":
-            raise ValueError("E2E_MODE requires APP_ENV=e2e")
-        if self.allow_server_ai_key_fallback:
-            raise ValueError("E2E_MODE cannot enable server AI key fallback")
-        if self.notion_create_entries:
-            raise ValueError("E2E_MODE cannot enable Notion writes")
-        if self.supabase_url.strip() or self.supabase_service_role_key.strip():
-            raise ValueError("E2E_MODE cannot use remote Supabase Storage")
-
-        database = urlparse(self.database_url)
-        if database.hostname not in {"localhost", "127.0.0.1", "::1"}:
-            raise ValueError("E2E_MODE requires a local PostgreSQL host")
-        if "e2e" not in database.path.rsplit("/", 1)[-1].lower():
-            raise ValueError("E2E_MODE requires a database name containing 'e2e'")
-
-        upload_root = Path(self.upload_dir).expanduser().resolve()
-        if not any("e2e" in part.lower() for part in upload_root.parts):
-            raise ValueError("E2E_MODE requires an isolated upload directory containing 'e2e'")
-
-        return self
 
 
 settings = Settings()

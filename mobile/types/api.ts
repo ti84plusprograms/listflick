@@ -40,7 +40,6 @@ export type AnalysisJobResponse = {
 
 export type HealthResponse = {
   status: string;
-  ai_mode?: "provider" | "deterministic_e2e" | string;
   ai_provider?: "gemini" | "groq" | string;
   allow_server_ai_key_fallback?: boolean;
   gemini_configured?: boolean;
