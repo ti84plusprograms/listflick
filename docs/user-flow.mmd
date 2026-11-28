@@ -5,7 +5,9 @@ flowchart TD
     C --> D[Home]
     B -->|Yes| D
 
-    D --> E[Take Photos / Choose from Library]
+    D --> E[New Listing: Photos or Video / Choose from Library]
+    D --> U[Unfinished Listing]
+    U --> G
     D --> I[Inventory]
     D --> S[Settings]
 
@@ -13,12 +15,14 @@ flowchart TD
     S --> P{AI provider selected?}
 
     P -->|No| P1[Choose AI Provider]
-    P1 --> P2{Gemini or Groq}
+    P1 --> P2{Gemini, Groq, or Claude}
     P2 -->|Gemini| P3[Add Gemini API Key]
     P2 -->|Groq| P4[Add Groq API Key]
+    P2 -->|Claude| P6[Add Claude API Key]
 
     P3 --> S
     P4 --> S
+    P6 --> S
 
     P -->|Yes| PK{Selected provider key configured?}
     PK -->|No| P5[Add Selected Provider API Key]
@@ -39,6 +43,9 @@ flowchart TD
     G --> H[Listing Preview]
 
     %% Review workspace
+    H --> QA[Answer or Skip Listing Questions]
+    QA --> H
+
     H --> J[Edit Listing]
     J --> H
 

@@ -199,6 +199,11 @@ AI calls are allowed when the user explicitly taps an AI action:
 - Make price more competitive.
 - Recalculate an AI-dependent insight, if such an insight cannot be deterministic.
 
+Implementation note: the automatic tip re-check described in section 11 is
+the one current exception to this section. It is a small, debounced, tips-only
+call and is skipped when AI Insights are OFF. The product decision on whether to
+keep it automatic or move it behind a tap is open.
+
 Prefer deterministic calculations for readiness scoring, checklist status, image feedback derived from local image metrics, and compatibility transforms.
 
 ## 8. Data / State Rules
@@ -249,7 +254,7 @@ Avoid:
 This checklist reflects the current implementation as of the latest audit.
 
 - [x] AI Insights setting exists in local storage via `getAIInsightsSettings()` / `saveAIInsightsSettings()`.
-- [x] The setting is controlled from `mobile/app/profile.tsx`.
+- [x] The setting is controlled from the Settings tab (`mobile/app/(tabs)/settings.tsx`).
 - [x] Core single-item listing generation ignores the AI Insights toggle.
 - [x] View Listing (`mobile/app/review.tsx`) has Manage Photos near the photo section.
 - [x] View Listing does not show full missing checklist, pricing guidance, listing quality, image feedback, or AI improve panels.
@@ -272,7 +277,7 @@ Implemented screens:
 - `mobile/app/review.tsx` is the current View Listing screen.
 - `mobile/app/edit-listing.tsx` is the listing workspace and owns AI improve actions.
 - `mobile/app/manage-photos.tsx` is the photo workspace and owns image quality feedback display.
-- `mobile/app/profile.tsx` stores seller defaults and the AI Insights toggle.
+- `mobile/app/(tabs)/settings.tsx` stores seller defaults and the AI Insights toggle.
 
 Implemented data flow:
 - Initial generation is triggered only from `mobile/app/processing.tsx`.
@@ -286,6 +291,33 @@ Implemented AI Insights behavior:
 - AI Insights OFF: Review Listing shows simple inline editing and hides insight UI.
 - Edit Listing shows pricing guidance, quality score, missing checklist, and AI improve actions only when AI Insights are ON.
 - Manage Photos shows photo feedback only when AI Insights are ON.
+- Edit Listing offers eight "Improve with AI" chips (more searchable title,
+  shorter description, more casual, more professional, add condition details,
+  build buyer trust, more competitive price, Marketplace-ready polish), hidden
+  when AI Insights are OFF. Each is an explicit tap through `POST /api/items/improve`,
+  and "more competitive price" also updates the price tiers. The
+  `pricing_reason` shows under the tiers.
+- Claude is a third provider beside Gemini and Groq, selected the same way
+  (saved device key or server `ANTHROPIC_API_KEY`). The AI-call rules above apply
+  to it unchanged.
+- Analysis sends every photo (up to 8, cover first) in one vision call, and
+  video frames count toward that budget. A listing can have one video, which is
+  not gated by AI Insights.
+- The vision step can return one price question and up to three buyer
+  questions. They appear as open questions on View Listing and Edit Listing and
+  are answered through `POST /api/items/{item_id}/answers` (an explicit user
+  action; dismissing questions makes no AI call). Open questions also appear as
+  missing checklist items.
+- View Listing shows a live "Ready to list" checklist and score computed on the
+  device from the listing as it stands (`mobile/utils/readinessChecklist.ts`).
+  It is deterministic, makes no AI call, and recalculates on every change. This
+  is separate from the AI-gated checklist and quality score in Edit Listing.
+- `POST /api/items/recheck` re-checks the open AI tips automatically, about 1.5
+  seconds after photos change (with the stored photos) or the text, price,
+  condition, or category changes (text only). It runs only on View Listing, only
+  when AI Insights are ON and a provider key is usable, never on first open, and
+  not when no tip is open (`mobile/hooks/useListingRecheck.ts`). This is a
+  deliberate exception to the explicit-tap rule in section 7; see the note there.
 - AI improve actions require explicit taps and return a preview that must be accepted before replacing current fields.
 - Analyze and listing improvement use the saved mobile provider when present.
   With server fallback enabled and no saved preference, they use the backend
@@ -309,4 +341,5 @@ These are documentation/product mismatches or implementation gaps. They are not 
 - **Edit Listing density mismatch:** Edit Listing has many fields and AI actions in a single long scroll. It matches the feature architecture but may need grouping or progressive disclosure.
 - **Description/details mismatch:** Structured detail fields are stored in draft state and appended into the description. Review Listing does not display those details as separate structured fields.
 - **Focus target mismatch:** Edit Listing receives `focus` params, but the screen currently displays the focus as text rather than scrolling/focusing the relevant section.
+- **Automatic re-check mismatch:** `POST /api/items/recheck` fires after edits on View Listing without a tap, which conflicts with sections 3 and 7 (see the note in section 7).
 - **Notion persistence mismatch:** Review Listing displays Notion status from backend responses during the session, but locally saved inventory records do not persist full `NotionSyncStatus`.

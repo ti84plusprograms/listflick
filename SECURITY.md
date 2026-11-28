@@ -22,5 +22,5 @@ triaged. Please allow time for a fix before any public disclosure.
 
 This covers the backend API (`backend/`) and the mobile app (`mobile/`) in
 this repository. Vulnerabilities in third-party services this project
-integrates with (Firebase, Supabase, Notion, Gemini, Groq) should be reported
+integrates with (Firebase, Supabase, Notion, Gemini, Groq, Anthropic) should be reported
 directly to those providers.

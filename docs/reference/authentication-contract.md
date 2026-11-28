@@ -35,7 +35,8 @@ Firebase verification, where they fail. See
 supported workflow.
 
 Listing data stored locally is scoped by the active Firebase UID. This includes
-saved listings, Recently Deleted listings, and edit drafts. When no user is
+saved listings, Recently Deleted listings, edit drafts, and the list of
+unfinished listings (`@pending_analyses`). When no user is
 authenticated, these records use an isolated `signed-out` scope. A legacy
 global saved-listings value has no owner metadata, so it is never exposed while
 signed out. The first authenticated account that encounters valid legacy data

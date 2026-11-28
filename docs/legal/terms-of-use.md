@@ -1,17 +1,17 @@
-<!-- legal-content-revision: 2026-09-05 -->
+<!-- legal-content-revision: 2026-11-28 -->
 # Terms of use
 
-**Effective date:** September 5, 2026
+**Effective date:** November 28, 2026
 
 These terms govern use of ListFlick, a beta tool for
 creating draft marketplace listings.
 
 ## The service
 
-The application accepts item photos and details, generates listing drafts, and
-provides editing, inventory, sharing, and optional Notion synchronization.
-Features may change, be unavailable, or be removed while the application is in
-beta.
+The application accepts item photos, an optional video, and details, generates
+listing drafts, and provides editing, inventory, sharing, and optional Notion
+synchronization. Features may change, be unavailable, or be removed while the
+application is in beta.
 
 ## Your responsibilities
 
@@ -47,7 +47,7 @@ accounts and terms.
 ## Account deletion and termination
 
 You may delete your account from **Settings > Delete Account**. This removes
-the application account, server listings, uploaded images, and local
+the application account, server listings, uploaded images and videos, and local
 user-scoped listing data. External Notion pages must be deleted in Notion.
 
 We may suspend or terminate access for abuse, security reasons, legal

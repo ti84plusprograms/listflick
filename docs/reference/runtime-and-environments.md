@@ -35,3 +35,13 @@ All environments currently execute analysis inside the FastAPI request that
 claims the database job. PostgreSQL makes the job resumable, but no environment
 has an autonomous background worker. After a backend restart, the mobile
 client must reconnect and retry once the old lease expires.
+
+Listing videos are uploaded through the same web service and stored beside the
+photos (Supabase when configured, otherwise `backend/uploads`). The request
+size limit is `MAX_VIDEO_UPLOAD_MB` (default 100).
+
+Notifications are local to the device in every environment. They need no
+backend, push service, or signing capability, because
+`mobile/plugins/withoutPushEntitlement.js` strips the push entitlement from
+the native build. Appearance and notification preferences are stored on the
+device (`@appearance`, `@notification_preferences`) and are not synced.

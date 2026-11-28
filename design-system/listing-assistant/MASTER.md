@@ -8,7 +8,7 @@
 
 **Project:** ListFlick
 **Platform:** React Native (Expo) — iOS & Android mobile app
-**Updated:** 2026-08-24
+**Updated:** 2026-11-28
 **Category:** Mobile utility — photo-to-listing workflow for casual marketplace sellers
 
 ---
@@ -26,30 +26,40 @@ This is a **calm, practical, mobile-first utility app** — not a marketing site
 
 ## Color Palette
 
-Strict, high-contrast, light-mode-first monochrome palette. No gradients. No tinted backgrounds.
+Strict, high-contrast monochrome palette with a light and a dark scheme. No
+gradients. No tinted backgrounds. Light is the default; Settings > Appearance
+switches to Dark. Dark swaps the palette: light surfaces go dark, and dark text
+and accents go light. Both palettes live in `mobile/constants/theme.ts` and
+share the same token names.
 
-| Role | Token | Hex | Usage |
-|------|-------|-----|-------|
-| Background | `background` | `#FFFFFF` | Primary app background |
-| Surface | `surface` | `#F5F5F5` | Cards, trays, input field backgrounds |
-| Surface Elevated | `surfaceElevated` | `#FFFFFF` | Elements sitting inside a surface |
-| Border | `border` | `#E5E5E5` | Inputs, dividers, card outlines |
-| Border Subtle | `borderSubtle` | `#EEEEEE` | List row separators |
-| Text Primary | `textPrimary` | `#1A1A1A` | Headings, body, active icons |
-| Text Secondary | `textSecondary` | `#6B6B6B` | Subtitles, helper text, inactive tabs |
-| Text Tertiary | `textTertiary` | `#999999` | Placeholders, disabled states |
-| Text Link | `textLink` | `#1A1A1A` | Tappable text (no underline on mobile) |
-| Accent | `accent` | `#1A1A1A` | Primary action buttons, selected states |
-| Accent Text | `accentText` | `#FFFFFF` | Text inside primary buttons |
-| Tag Background | `tagBackground` | `#F0F0F0` | Non-interactive badges/pills |
-| Tag Border | `tagBorder` | `#E0E0E0` | Badge/pill outlines |
-| Success | `success` | `#22C55E` | Positive status ("Good photo", synced) |
-| Warning | `warning` | `#F59E0B` | Warnings ("Missing detail", low confidence) |
+| Role | Token | Light | Dark | Usage |
+|------|-------|-------|------|-------|
+| Background | `background` | `#FFFFFF` | `#121212` | Primary app background |
+| Surface | `surface` | `#F5F5F5` | `#1E1E1E` | Cards, trays, input field backgrounds |
+| Surface Elevated | `surfaceElevated` | `#FFFFFF` | `#242424` | Elements sitting inside a surface |
+| Border | `border` | `#E5E5E5` | `#333333` | Inputs, dividers, card outlines |
+| Border Subtle | `borderSubtle` | `#EEEEEE` | `#2A2A2A` | List row separators |
+| Text Primary | `textPrimary` | `#1A1A1A` | `#F2F2F2` | Headings, body, active icons |
+| Text Secondary | `textSecondary` | `#6B6B6B` | `#A3A3A3` | Subtitles, helper text |
+| Text Tertiary | `textTertiary` | `#999999` | `#737373` | Placeholders, disabled states |
+| Text Link | `textLink` | `#1A1A1A` | `#F2F2F2` | Tappable text (no underline on mobile) |
+| Accent | `accent` | `#1A1A1A` | `#F2F2F2` | Primary action buttons, selected states |
+| Accent Text | `accentText` | `#FFFFFF` | `#121212` | Text inside primary buttons |
+| Tag Background | `tagBackground` | `#F0F0F0` | `#2A2A2A` | Non-interactive badges/pills |
+| Tag Border | `tagBorder` | `#E0E0E0` | `#3A3A3A` | Badge/pill outlines |
+| Success | `success` | `#22C55E` | `#22C55E` | Positive status ("Good photo", synced) |
+| Warning | `warning` | `#F59E0B` | `#F59E0B` | Warnings ("Missing detail", low confidence) |
+| Tab Active | `tabActive` | `#1A1A1A` | `#F2F2F2` | Selected bottom tab |
+| Tab Inactive | `tabInactive` | `#999999` | `#737373` | Unselected bottom tabs |
+| Overlay Bar | `overlayBar` | `rgba(255,255,255,0.94)` | `rgba(18,18,18,0.94)` | Translucent bars over photos |
+| Grabber | `grabber` | `rgba(26,26,26,0.24)` | `rgba(242,242,242,0.24)` | Sheet grabber handle |
+| Accent Tint | `accentTint` | `rgba(255,255,255,0.14)` | `rgba(0,0,0,0.08)` | Chips sitting on the accent color |
+| Switch Thumb | `switchThumb` | `#FFFFFF` | `#121212` | Switch knob (dark mode needs a dark knob on the light "on" track) |
 
 **Notes:**
-- Accent is intentionally `#1A1A1A` (near-black). Primary buttons are dark, not colorful.
-- Success/Warning are the only chromatic colors in the palette.
-- Never invent new colors. Use these tokens exclusively.
+- Accent is near-black in light mode and near-white in dark mode. Primary buttons are high-contrast, not colorful.
+- Success/Warning are the only chromatic colors in the palette, and they are the same in both schemes.
+- Never invent new colors. Use these tokens exclusively, and add any new token to both palettes (`ThemeColors` requires it).
 
 ---
 
@@ -105,6 +115,9 @@ Slightly rounded, grounded. Never use circular pill shapes for primary actions.
 
 ### Primary Button
 
+Colors in the snippets below show the light value; dark mode resolves the same
+token to its dark value through `themedStyles` (see Theming).
+
 ```typescript
 primaryButton: {
   backgroundColor: theme.colors.accent,        // #1A1A1A
@@ -155,18 +168,42 @@ sectionHeader: {
 
 ---
 
+## Theming
+
+`theme.colors` is a getter that returns the palette for the active scheme
+(`getActiveColorScheme()`, `setActiveColorScheme()`, `colorsFor(scheme)`). Because a
+plain `StyleSheet.create` would read the palette only once at import time, wrap
+every module-level stylesheet in `themedStyles` so it is rebuilt once per scheme:
+
+```typescript
+import { theme, themedStyles } from "../constants/theme";
+
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    card: { backgroundColor: theme.colors.surface },
+  })
+);
+```
+
+`styles.card` then returns the style for the active scheme. The app redraws its
+screens when Appearance changes, and native alerts and the status bar follow the
+choice. Do not read `theme.colors` into a module-level constant outside
+`themedStyles`, or it will stay on the scheme that was active at import.
+
+---
+
 ## Screen Architecture
 
 The app flow is a sequential workflow, not a browsable directory.
 
 | Screen | Purpose | Navigation |
 |--------|---------|------------|
-| **Home** | Entry point — "Take photo" / "Choose from library" | Tab bar |
-| **Camera** | Photo capture | Full-screen, hides tab bar |
+| **Home** | Entry point — "Make your first listing" or "New listing", then a **Needs attention** list (unfinished listings first) and **Ready to post** | Tab bar |
+| **Camera** | Photo or video capture, and the Library button | Full-screen, hides tab bar |
 | **Processing** | AI analysis spinner | Full-screen, hides tab bar |
 | **Review Listing** | Clean listing preview with save/share actions | Stack push from Processing |
 | **Edit Listing** | Form workspace for title, price, description, details | Stack push from Review |
-| **Manage Photos** | Photo grid — reorder, remove, add, quality feedback | Stack push from Review |
+| **Manage Photos** | Photo grid — reorder, remove, add, quality feedback; one optional video | Stack push from Review |
 | **Inventory** | Saved listings list | Tab bar |
 | **Settings** | Profile, AI Insights toggle, defaults | Tab bar |
 
@@ -179,7 +216,7 @@ AI features are gated behind a Settings toggle. When enabled:
 | Screen | What appears |
 |--------|-------------|
 | Review Listing | Small edit shortcuts (tap to jump to Edit Listing) |
-| Edit Listing | Missing-info checklist, listing quality score, AI rewrite actions |
+| Edit Listing | Missing-info checklist, listing quality score, **Improve with AI** rewrite chips |
 | Manage Photos | Per-photo quality feedback badges (good / needs improvement / poor) |
 
 When disabled, all screens remain fully functional for manual listing creation.
@@ -220,13 +257,14 @@ The official ListFlick monogram is an aerodynamic, forward-slanted `LF` mark com
 - **Master Platform Assets:** `mobile/assets/images/icon.png` and `splash.png` (1024×1024, `#FFFFFF` background, `#161616` glyph)
 - **Native Splash Assets:** generated by `npx expo prebuild` from the `expo-splash-screen` plugin in `mobile/app.json` (`assets/images/logo-mark.png`, 200pt wide, centered on `#FFFFFF`).
 - **Processing Loader:** `mobile/app/processing.tsx` uses the animated `<ListFlickMark />` instead of a sparkle glyph.
-- **App Icon Colorway:** Light-mode primary (`#FFFFFF` background, near-black glyph) to match the light-mode-first mobile utility philosophy.
+- **Dark Variants:** `mobile/assets/images/icon-dark.png` (iOS dark icon, `ios.icon.dark` in `mobile/app.json`) and `logo-mark-dark.png` (dark splash on `#121212`, the `dark` option of the `expo-splash-screen` plugin). In app, `<ListFlickMark />` follows the active scheme.
+- **App Icon Colorway:** Light variant is `#FFFFFF` background with a near-black glyph; the dark variant is `icon-dark.png`.
 
 ---
 
 ## Implementation Rules
 
-1. **Always import `theme`** from `mobile/constants/theme.ts`. Never hardcode hex values.
+1. **Always import `theme`** from `mobile/constants/theme.ts`. Never hardcode hex values. Wrap module-level `StyleSheet.create` in `themedStyles` (see Theming).
 2. **Icons:** `@expo/vector-icons` (`Ionicons`). Size 20–24px. Use `-outline` for inactive, solid for active.
 3. **Grouped lists:** Use `surface` card (radius 16) with rows separated by `hairlineWidth` + `border` color.
 4. **Bottom tabs:** 3 tabs — Home, Inventory, Settings. Hidden during Camera and Processing flows.
@@ -239,6 +277,7 @@ The official ListFlick monogram is an aerodynamic, forward-slanted `LF` mark com
 Before delivering any mobile UI code:
 
 - [ ] All colors use `theme.colors.*` tokens, no hardcoded hex
+- [ ] Module-level styles are wrapped in `themedStyles` and checked in light and dark mode
 - [ ] All text styles use `theme.typography.*` tokens
 - [ ] All spacing uses `theme.spacing.*` tokens
 - [ ] All radii use `theme.radius.*` tokens
