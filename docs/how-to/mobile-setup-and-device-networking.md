@@ -7,6 +7,21 @@ files into `mobile/config/` first; `npx expo run:ios` runs prebuild if the
 folders are missing. After changing `app.json`, `app.config.js` or a plugin in
 `mobile/plugins/`, run `npx expo prebuild --clean`.
 
+The notifications, video and appearance features add native configuration to
+`mobile/app.json`, so rebuild the development client after pulling them:
+
+- `expo-notifications` is listed as a plugin. ListFlick sends only local
+  notifications, so `mobile/plugins/withoutPushEntitlement.js` removes the
+  `aps-environment` (Push Notifications) entitlement that the plugin adds.
+  This lets a personal Apple development team sign the app. Remove that plugin
+  only if the app starts using remote push.
+- `expo-camera`, `expo-image-picker` and `expo-media-library` carry camera,
+  microphone and photo-library permission text for photo and video capture, and
+  `expo-video` handles playback.
+- The iOS icon has light and dark variants (`assets/images/icon.png` and
+  `icon-dark.png`), and the `expo-splash-screen` plugin has a dark variant
+  (`logo-mark-dark.png` on `#121212`). Changing these needs a prebuild.
+
 For a physical device:
 
 1. Start the backend with `make backend`.

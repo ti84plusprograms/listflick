@@ -19,6 +19,16 @@ URL. Run `eas init` against your own Expo account and configure
 profile. This prevents a fork or clone from consuming the repository owner's
 EAS or backend resources.
 
+## Native entitlements
+
+`mobile/app.json` lists `expo-notifications` for local alerts. That package
+normally adds the Push Notifications entitlement (`aps-environment`), which
+personal Apple development teams cannot sign. The local config plugin
+`mobile/plugins/withoutPushEntitlement.js` removes it, because ListFlick
+schedules only local notifications. Remove that plugin if the app ever registers
+for remote push. The camera plugin also declares a microphone permission string
+for video capture.
+
 ## Brand and native identity
 
 The public app name is **ListFlick**. The Expo configuration and checked-in

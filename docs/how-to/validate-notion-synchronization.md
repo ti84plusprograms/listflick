@@ -15,7 +15,8 @@ it against a production destination without approval from its owner.
 4. Set `NOTION_CREATE_ENTRIES=true`. Enable
    `NOTION_ALLOW_CLIENT_OVERRIDE` only when testing the development override.
 5. Deploy the backend so startup migration 10 adds the Notion lease and
-   reconciliation columns.
+   reconciliation columns, and migration 11 adds the video and Notion media
+   columns.
 
 Do not place secrets, destination identifiers, Firebase tokens, or raw provider
 responses in screenshots or committed evidence.
@@ -32,6 +33,19 @@ responses in screenshots or committed evidence.
    the save result.
 6. Open the resulting page in Notion and confirm its **Reason for Selling** value
    contains `Created from app item <item-id>.`.
+
+## Validate video sync
+
+Skip this section if the controlled workspace plan does not allow video uploads
+of the test clip's size.
+
+1. Save a listing that has one short video. Open the Notion page.
+2. Confirm the **Photos** property lists the photos first and the video last,
+   and that the page shows the media note and a video block captioned with the
+   clip length.
+3. Retry the sync and confirm the page still shows one video, not a second copy.
+4. If the video is larger than the workspace plan allows, confirm the page and
+   photos are still written and the response carries the video warning.
 
 ## Validate retry and uniqueness
 

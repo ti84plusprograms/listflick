@@ -25,11 +25,14 @@ the same item.
 ## Request flow
 
 ```text
-select photos
-    -> copy photos into the app document directory
-    -> save user-scoped pending operation on the device
+select photos (and optionally one video)
+    -> copy photos, the video and its candidate frames into the app
+       document directory
+    -> save a user-scoped pending operation on the device
     -> upload with Idempotency-Key
     -> persist returned item ID immediately
+    -> upload the video, if any, with PUT /api/items/{item_id}/video
+       (a video-only listing uses POST /api/items/upload-video instead)
     -> load the item once to reconcile upload and existing job state
     -> POST /api/items/{item_id}/analysis-jobs
     -> web request claims a PostgreSQL lease and calls the AI provider
@@ -39,11 +42,47 @@ select photos
     -> save server-backed image references, then clear recovery data
 ```
 
-The Home screen exposes an unfinished operation as **Resume listing**. Returning
-home does not discard server state. Explicit discard deletes the owned pending
-item, its analysis job through the database foreign key, and its pending image
-objects. Discard remains available from an unsaved review draft after analysis
+The Home screen lists each unfinished operation as an **Unfinished listing** row
+under **Needs attention**; tapping it reopens Processing for that operation ID.
+Returning home does not discard server state. Explicit discard deletes the owned
+pending item, its analysis job through the database foreign key, and its pending
+image and video objects. Discard remains available from an unsaved review draft after analysis
 has completed, so retaining recovery files does not prevent starting over.
+
+## Several unfinished listings
+
+The device keeps a list of pending operations, not a single slot. Each capture
+creates its own operation with its own operation ID, so starting a second
+listing before saving the first does not block or replace it. The list is
+stored under `@pending_analyses` (scoped to the signed-in user) and read newest
+first; entries past the retention window are dropped together with their
+copied files. A draft stored by an older build in the single `@pending_analysis`
+slot is moved into the list the first time it is read. Processing, resume and
+discard each act on one operation, identified by the `operationId` route
+parameter. Sign-out and account deletion remove the files of every draft.
+
+The backend needs no change for this: items, upload claims and analysis jobs
+were already per item.
+
+## Video
+
+A listing can carry one video. Before the operation is recorded, the app copies
+the clip and its extracted candidate frames next to the photos, so a restart
+does not lose them. The operation remembers when the backend already has the
+video, which keeps a resume from uploading it twice. At analysis time the
+backend selects the sharpest, most distinct frames and sends them to the vision
+model after the photos in the same call.
+
+## Notifications
+
+If the user turns on alerts in Settings, the app sends a local notification when
+an analysis finishes or fails while ListFlick is in the background. A finished
+analysis is **Listing ready**, or **Listing needs attention** when checklist
+details are missing; a failure is also **Listing needs attention**. Nothing is
+sent while the app is in the foreground, when the matching toggle is off, or
+without OS permission. These are on-device alerts scheduled by the running app
+after its own request returns. They are not push notifications and do not make
+analysis continue when the app is closed; see the next section.
 
 ## Upload idempotency
 

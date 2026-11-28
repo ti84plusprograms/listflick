@@ -10,7 +10,7 @@ listing-creation, AI-improvement, photo-management, and image-download UI flows,
 follow
 [Run the local Maestro UI flows](maestro-create-listing.md) and
 [Authentication and onboarding Maestro flow](maestro-auth-onboarding.md). They
-use an isolated deterministic backend and do not call Gemini or Groq.
+use an isolated deterministic backend and do not call any AI provider.
 
 For API smoke validation, run `make backend` in one terminal and `make smoke`
 in another. The smoke script checks health and unauthenticated endpoint
@@ -30,6 +30,18 @@ cd backend
 PYTHONWARNINGS=error::DeprecationWarning .venv/bin/python -m pytest tests/test_cors.py::test_cors_preflight_allows_configured_origin
 ```
 
+The backend suite (`cd backend && pytest -q`, also run by CI) includes video
+(`test_video_api.py`, `test_video_frames.py`, `test_notion_video.py`), listing
+questions and re-checks (`test_listing_answers_api.py`,
+`test_listing_recheck.py`), and Claude client tests (`test_claude_client.py`).
+The mobile `npm test` script runs `tsc --noEmit` and then every listed
+`__tests__/*.test.ts` file with `tsx`, plus
+`scripts/start-mobile-tunnel.test.mjs`. When you add a mobile test file, append
+it to the `test` script in `mobile/package.json` or CI will not run it. Suites
+for the newer surfaces are `listing-readiness`, `readiness-checklist`,
+`home-redesign-wiring`, `listing-questions`, `video-media`,
+`settings-preferences`, `settings-snapshot`, and `multiple-drafts`.
+
 Resumability changes should cover the following focused surfaces before the
 full suites:
 
@@ -43,8 +55,11 @@ cd mobile && npm test
 ```
 
 For device acceptance, interrupt once after upload and once during analysis.
-Confirm that Home shows **Resume listing**, the same server item ID is reused,
-and completed analysis is not called a second time. While analysis is active,
+Confirm that Home lists the draft as **Unfinished listing** under **Needs
+attention**, tapping it reopens the same server item ID, and completed analysis
+is not called a second time. Repeat with two photo sets started back to back and
+confirm Home shows one row per draft, each opening and discarding on its own.
+While analysis is active,
 confirm repeated requests use `GET /api/items/{id}/analysis-jobs` rather than
 the full item endpoint. After analysis succeeds, open **Manage Photos** before
 saving and confirm every retained photo still renders and can be submitted.
@@ -53,6 +68,14 @@ screen no longer offers that operation. Also verify explicit discard,
 account deletion after an interrupted upload, and seven-day expiry behavior.
 This proves reconnect-driven recovery; it does not prove autonomous processing
 because no background worker exists.
+
+For notification acceptance, use a development build on a physical iPhone. Open
+**Notifications** in Settings, choose **Allow Notifications**, and accept the
+iOS prompt. Start an analysis, send ListFlick to the background, and confirm a
+**Listing ready** alert (or **Listing needs attention** when checklist details
+are missing, or when analysis fails). Repeat in the foreground and confirm no
+alert is shown. Turn off **Listing Ready** and **Needs Attention** in turn and
+confirm that kind stops.
 
 For **Manage Photos** gallery acceptance, test both a local picker image and a
 saved server-backed image on iOS and Android. Confirm that each tile shows a

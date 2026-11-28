@@ -38,6 +38,20 @@ shows whether sync was skipped, needs a retry, has a configuration problem, or
 completed, and an existing Notion page can still be opened while future sync
 requests are paused.
 
+## Video and listing questions
+
+A listing's video is synced as well. The page's **Photos** files property lists
+the photos in order and then the video file, and a media note on the page says
+photo 1 is the cover and that the video goes in Marketplace's "Add video" slot.
+The page also gets a video block captioned with the clip length. The backend
+remembers the Notion upload of the current video (`notion_media_json`) so a
+later sync of the same video does not upload it again. Notion's plan limits
+apply: if the video is too large for the workspace plan, or its upload fails,
+the page and photos are still written and the sync result carries a warning so a
+later sync can retry the video. Open price and buyer questions are not synced;
+the page receives the title, condition, description, price, status and photos
+described by `build_notion_page_payload`.
+
 ## Write serialization and ambiguous creates
 
 Before calling Notion, the backend claims a bounded item-scoped PostgreSQL
