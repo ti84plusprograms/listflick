@@ -426,7 +426,7 @@ export default function ProcessingScreen() {
   }
 
   return (
-    <View style={styles.container} testID="processing-screen">
+    <View style={styles.container}>
       <View style={styles.content}>
 
         {/* Photo Strip */}
@@ -462,7 +462,7 @@ export default function ProcessingScreen() {
         </View>
 
         {/* Status Text */}
-        <Text style={styles.statusTitle} testID="processing-status" accessibilityLiveRegion="polite">
+        <Text style={styles.statusTitle} accessibilityLiveRegion="polite">
           {statusText}
         </Text>
         <Text style={styles.statusSubtitle}>You can return home and resume this listing later.</Text>

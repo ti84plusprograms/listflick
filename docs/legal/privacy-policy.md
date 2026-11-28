@@ -1,7 +1,7 @@
-<!-- legal-content-revision: 2026-09-05 -->
+<!-- legal-content-revision: 2026-11-28 -->
 # Privacy policy
 
-**Effective date:** September 5, 2026
+**Effective date:** November 28, 2026
 
 ListFlick helps users turn item photos into draft
 marketplace listings. This policy describes the information processed by the
@@ -11,14 +11,22 @@ current beta application.
 
 - **Account information:** Firebase Authentication provides an account UID,
   email address, display name, and sign-in provider details when available.
-- **Listing information:** item photos, generated analysis, listing titles,
+- **Listing information:** item photos, an optional video and still frames
+  taken from it (a video recorded with the microphone allowed includes sound),
+  generated analysis, listing titles,
   descriptions, prices, categories, conditions, profile defaults, and edits.
 - **Technical information:** authentication tokens are sent to the backend for
   verification. The backend logs operational events such as request type,
   timing, and error category, but should not log passwords or ID tokens.
 - **Optional Notion information:** when Notion synchronization is enabled,
-  listing data and selected photos are sent to the configured Notion
-  integration.
+  listing data, selected photos, and the listing video may be sent to the
+  configured Notion integration.
+- **Device permissions and notifications:** the app asks for camera,
+  microphone, photo library, and notification permissions only for the
+  features that use them. Optional notifications about a listing finishing or
+  needing attention are local notifications created on your device while the
+  app is in the background. The app does not register for push notifications
+  and does not collect a push token.
 
 ## How information is used
 
@@ -26,18 +34,20 @@ We use this information to authenticate users, generate and improve listing
 drafts, store listings and images, display inventory, support deletion and
 restoration workflows, and optionally synchronize listings to Notion.
 
-Photos and listing content may be sent to the configured Gemini, Groq, or
-Claude (Anthropic) provider to perform AI analysis. Those providers process
-requests under their own terms and privacy policies. Do not upload sensitive personal information
-that is not needed to create a listing.
+Photos, still frames selected from a listing video, and listing content may be
+sent to the configured Gemini, Groq, or Claude (Anthropic) provider to perform
+AI analysis. The video file itself is not sent to these providers. Those
+providers process requests under their own terms and privacy policies. Do not
+upload sensitive personal information that is not needed to create a listing.
 
 ## Where information is stored
 
 The deployed service uses Firebase Authentication, Render for the FastAPI
 backend, PostgreSQL for listing records, and private Supabase Storage for
-deployed images. Local development may use local image storage. The mobile app
-also keeps user-scoped listings, drafts, profile defaults, and Recently Deleted
-records in local device storage.
+deployed images and listing videos. Local development may use local image
+storage. The mobile app also keeps user-scoped listings, unfinished listing
+drafts (including their photos and video), profile defaults, and Recently
+Deleted records in local device storage.
 
 ## Sharing and external services
 
@@ -54,7 +64,8 @@ prepares content and opens native sharing flows.
 ## Retention and deletion
 
 You can use **Settings > Delete Account** to delete the Firebase account,
-server-side listings, uploaded images, and local user-scoped listing data.
+server-side listings, uploaded images and videos, and local user-scoped
+listing data.
 Listing records in Recently Deleted are included in this operation.
 
 Copies already synchronized to your own Notion workspace are external copies

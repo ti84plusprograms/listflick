@@ -45,11 +45,9 @@ export const DEFAULT_RETENTION_DAYS = 30 as const;
 export const RETENTION_OPTIONS = [7, 30, 90] as const;
 export const DEFAULT_DEVELOPER_NOTION_MODE = true as const;
 
-import { getAuthUser } from "./authSession";
-
 function storageScope(): string {
   try {
-    return getAuthUser()?.uid ?? "signed-out";
+    return getAuth(getApp()).currentUser?.uid ?? "signed-out";
   } catch {
     // Keep storage isolated even if Firebase has not finished initializing.
     return "signed-out";
@@ -76,10 +74,6 @@ export async function getEffectiveAIProvider(health?: { allow_server_ai_key_fall
 
 export async function saveSelectedAIProvider(provider: AIProvider): Promise<void> {
   await AsyncStorage.setItem(scopedKey(AI_PROVIDER_PREFERENCE_KEY), provider);
-}
-
-export async function clearSelectedAIProvider(): Promise<void> {
-  await AsyncStorage.removeItem(scopedKey(AI_PROVIDER_PREFERENCE_KEY));
 }
 
 export const DEFAULT_AI_INSIGHTS_SETTINGS: AIInsightsSettings = {

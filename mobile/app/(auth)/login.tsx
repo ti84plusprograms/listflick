@@ -3,15 +3,16 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingVi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getApp } from '@react-native-firebase/app';
 import {
+  createUserWithEmailAndPassword,
   getAuth,
   GoogleAuthProvider,
   signInWithCredential,
+  signInWithEmailAndPassword,
 } from '@react-native-firebase/auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Ionicons } from '@expo/vector-icons';
 import { BRAND_NAME } from '@/constants/brand';
 import { theme, themedStyles } from '@/constants/theme';
-import { useAuth } from '@/state/AuthContext';
 import { authDebugLog, authDebugWarn, describeAuthUser } from '@/utils/authDebug';
 import { ListFlickMark } from '@/components/brand/ListFlickMark';
 
@@ -29,7 +30,6 @@ if (googleSignInConfigured) {
 }
 
 export default function LoginScreen() {
-  const { signIn, signUp } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -51,10 +51,13 @@ export default function LoginScreen() {
     });
 
     try {
-      const user = isSignUp
-        ? await signUp(email.trim(), password)
-        : await signIn(email.trim(), password);
-      authDebugLog('email authentication succeeded', describeAuthUser(user));
+      const auth = getAuth(getApp());
+      if (isSignUp) {
+        await createUserWithEmailAndPassword(auth, email.trim(), password);
+      } else {
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+      }
+      authDebugLog('email authentication succeeded', describeAuthUser(auth.currentUser));
     } catch (e: any) {
       authDebugWarn('email authentication failed', { code: e?.code, message: e?.message });
       if (e.code === 'auth/invalid-credential' || e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password') {
@@ -101,7 +104,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} testID="login-screen">
+    <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
@@ -115,10 +118,9 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.formContainer}>
-          {error ? <Text testID="auth-error-message" style={styles.errorText}>{error}</Text> : null}
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
           <TextInput
-            testID="auth-email-input"
             style={styles.input}
             placeholder="Email"
             placeholderTextColor={theme.colors.textSecondary}
@@ -126,26 +128,18 @@ export default function LoginScreen() {
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
-            textContentType="none"
-            autoComplete="off"
-            autoCorrect={false}
           />
 
           <TextInput
-            testID="auth-password-input"
             style={styles.input}
             placeholder="Password"
             placeholderTextColor={theme.colors.textSecondary}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
-            textContentType="none"
-            autoComplete="off"
-            autoCorrect={false}
           />
 
           <TouchableOpacity
-            testID="auth-submit-button"
             style={[styles.primaryButton, loading && styles.disabledButton]}
             onPress={handleEmailAuth}
             disabled={loading}
@@ -160,7 +154,6 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            testID="auth-toggle-mode-button"
             style={styles.switchButton}
             onPress={() => setIsSignUp(!isSignUp)}
             disabled={loading}

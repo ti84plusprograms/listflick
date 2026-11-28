@@ -23,17 +23,17 @@ Signed-in users can select **Settings > Delete Account**. After confirmation,
 the application:
 
 1. verifies the Firebase identity on the backend;
-2. removes the user's stored image objects;
+2. removes the user's stored image and video objects;
 3. deletes the user's PostgreSQL listing records, including Recently Deleted
    records;
 4. deletes the Firebase Authentication account; and
 5. clears the user's local listings, drafts, profile, and Recently Deleted data
    before signing out.
 
-The operation is permanent. Stored images, including incomplete uploads, are
-removed before listing records. If that cleanup or record deletion fails, the
-application reports the failure and leaves you signed in so you can retry;
-some images may already have been removed. If the records and images were
+The operation is permanent. Stored images and videos, including incomplete
+uploads, are removed before listing records. If that cleanup or record deletion
+fails, the application reports the failure and leaves you signed in so you can
+retry; some images may already have been removed. If the records and images were
 deleted and only the final Firebase step fails, the app clears its local data
 and signs you out anyway, since the server-side account data no longer exists.
 

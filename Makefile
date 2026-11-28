@@ -5,12 +5,10 @@
 ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 MERMAID_CLI_VERSION := 11.10.1
 
-export PATH := $(HOME)/.maestro/bin:$(PATH)
-
-.PHONY: backend e2e-backend e2e-mobile e2e-seed-ios e2e-auth-onboarding e2e-create-listing e2e-configure-ai e2e-improve-listing e2e-manage-photos e2e-download-images mobile mobile-manual mobile-tunnel mobile-tunnel-clean mobile-tunnel-measure mobile-tunnel-benchmark docs-user-flow test smoke install-backend install-mobile build-preview build-prod help
+.PHONY: backend mobile mobile-manual mobile-tunnel mobile-tunnel-clean mobile-tunnel-measure mobile-tunnel-benchmark docs-user-flow test smoke install-backend install-mobile build-preview build-prod help
 
 help:
-	@echo "Targets: backend, e2e-backend, e2e-mobile, e2e-seed-ios, e2e-auth-onboarding, e2e-create-listing, e2e-configure-ai, e2e-improve-listing, e2e-manage-photos, e2e-download-images, mobile, mobile-manual, mobile-tunnel, mobile-tunnel-clean, mobile-tunnel-measure, mobile-tunnel-benchmark, docs-user-flow, test, smoke, build-preview, build-prod"
+	@echo "Targets: backend, mobile, mobile-manual, mobile-tunnel, mobile-tunnel-clean, mobile-tunnel-measure, mobile-tunnel-benchmark, docs-user-flow, test, smoke, build-preview, build-prod"
 	@echo "Run from: $(ROOT)"
 
 install-backend:
@@ -21,39 +19,6 @@ install-mobile:
 
 backend:
 	cd $(ROOT)backend && .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-e2e-backend:
-	bash $(ROOT)scripts/start-e2e-backend.sh
-
-e2e-mobile:
-	bash $(ROOT)scripts/start-e2e-mobile.sh
-
-e2e-seed-ios:
-	bash $(ROOT)scripts/seed-maestro-ios-photo.sh
-
-e2e-auth-onboarding:
-	@command -v maestro >/dev/null 2>&1 || { echo "Maestro CLI is required: https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli"; exit 1; }
-	cd $(ROOT) && maestro test .maestro/auth-onboarding.yaml
-
-e2e-create-listing:
-	@command -v maestro >/dev/null 2>&1 || { echo "Maestro CLI is required: https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli"; exit 1; }
-	cd $(ROOT) && maestro test .maestro/create-listing.yaml
-
-e2e-configure-ai:
-	@command -v maestro >/dev/null 2>&1 || { echo "Maestro CLI is required: https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli"; exit 1; }
-	cd $(ROOT) && maestro test .maestro/configure-ai.yaml
-
-e2e-improve-listing:
-	@command -v maestro >/dev/null 2>&1 || { echo "Maestro CLI is required: https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli"; exit 1; }
-	cd $(ROOT) && maestro test .maestro/improve-listing.yaml
-
-e2e-manage-photos:
-	@command -v maestro >/dev/null 2>&1 || { echo "Maestro CLI is required: https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli"; exit 1; }
-	cd $(ROOT) && maestro test .maestro/manage-photos.yaml
-
-e2e-download-images:
-	@command -v maestro >/dev/null 2>&1 || { echo "Maestro CLI is required: https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli"; exit 1; }
-	cd $(ROOT) && maestro test .maestro/download-images.yaml
 
 mobile:
 	chmod +x $(ROOT)scripts/start-mobile-auto-ip.sh

@@ -14,7 +14,10 @@ credentials. In the default BYOK mode, provider keys come from authenticated
 mobile requests and are never persisted by the backend. A server-side AI key
 is required only when the self-hoster explicitly enables
 `ALLOW_SERVER_AI_KEY_FALLBACK`; that key and its usage costs belong to the
-self-hoster. Supabase credentials are required for durable production image
+self-hoster. Supported providers are Gemini (`GEMINI_API_KEY`), Groq
+(`GROQ_API_KEY`) and Claude (`ANTHROPIC_API_KEY`), selected with `AI_PROVIDER`
+(`gemini`, `groq` or `claude`). Video uploads are limited by
+`MAX_VIDEO_UPLOAD_MB` (default 100). Supabase credentials are required for durable production image
 storage. Without Supabase credentials, the storage abstraction falls back to
 `backend/uploads/`, which is suitable only for local development.
 

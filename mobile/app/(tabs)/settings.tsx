@@ -18,6 +18,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
+import { getApp } from "@react-native-firebase/app";
+import { getAuth, signOut } from "@react-native-firebase/auth";
 import { ApiError, deleteAccount, getHealth } from "../../services/api";
 import {
   deleteProviderApiKey,
@@ -91,7 +93,6 @@ function ToggleRow({
   onValueChange,
   disabled,
   isLast,
-  testID,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -100,7 +101,6 @@ function ToggleRow({
   onValueChange: (v: boolean) => void;
   disabled?: boolean;
   isLast?: boolean;
-  testID?: string;
 }) {
   return (
     <>
@@ -111,7 +111,6 @@ function ToggleRow({
           {subtitle ? <Text style={styles.groupRowSub}>{subtitle}</Text> : null}
         </View>
         <Switch
-          testID={testID}
           accessibilityLabel={`${label}, ${value ? "On" : "Off"}`}
           value={value}
           onValueChange={onValueChange}
@@ -132,7 +131,6 @@ function NavRow({
   onPress,
   isLast,
   accessibilityLabel,
-  testID,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -140,7 +138,6 @@ function NavRow({
   onPress?: () => void;
   isLast?: boolean;
   accessibilityLabel?: string;
-  testID?: string;
 }) {
   return (
     <>
@@ -148,7 +145,6 @@ function NavRow({
         accessibilityRole={onPress ? "button" : undefined}
         accessibilityLabel={accessibilityLabel ?? (value ? `${label}, ${value}` : label)}
         accessibilityValue={value ? { text: value } : undefined}
-        testID={testID}
         style={({ pressed }) => [styles.groupRow, pressed && onPress ? styles.groupRowPressed : null]}
         onPress={onPress}
       >
@@ -168,7 +164,7 @@ function NavRow({
 
 export default function SettingsScreen() {
   const params = useLocalSearchParams<{ manageProvider?: string; chooseProvider?: string }>();
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   // Start from the last loaded values: switching Appearance remounts this screen.
   const [profile, setProfile] = useState<UserProfile>(() => snapshotProfileFor(user?.uid));
   const [defaultPickup, setDefaultPickup] = useState(() => getSettingsSnapshot().defaultPickup);
@@ -432,10 +428,11 @@ export default function SettingsScreen() {
   };
 
   const handleSignOut = async () => {
-    authDebugLog("sign-out requested", describeAuthUser(user));
+    const auth = getAuth(getApp());
+    authDebugLog("sign-out requested", describeAuthUser(auth.currentUser));
     try {
-      await signOut();
-      authDebugLog("sign-out completed");
+      await signOut(auth);
+      authDebugLog("sign-out completed", describeAuthUser(auth.currentUser));
     } catch (error: any) {
       authDebugWarn("sign-out failed", { code: error?.code, message: error?.message });
       Alert.alert("Sign Out Failed", error?.message || "Could not sign out");
@@ -486,7 +483,7 @@ export default function SettingsScreen() {
     try {
       await deleteAccount();
       await clearLocalUserData(uid);
-      await signOut();
+      await signOut(getAuth(getApp()));
       Alert.alert("Account Deleted", "Your account, listings, images, and local listing data were deleted.");
     } catch (error: any) {
       authDebugWarn("account deletion failed", { code: error?.code, message: error?.message });
@@ -496,7 +493,7 @@ export default function SettingsScreen() {
       if (error instanceof ApiError && error.status === 502) {
         try {
           await clearLocalUserData(uid);
-          await signOut();
+          await signOut(getAuth(getApp()));
         } catch (cleanupError: any) {
           authDebugWarn("post-failure local cleanup failed", {
             code: cleanupError?.code,
@@ -538,12 +535,8 @@ export default function SettingsScreen() {
       : "Choose the AI service ListFlick uses.";
 
   return (
-    <View style={styles.container} testID="settings-screen">
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        testID={aiSettingsLoading ? undefined : "settings-ai-ready"}
-      >
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Settings</Text>
@@ -587,7 +580,6 @@ export default function SettingsScreen() {
             subtitle="Feedback on each photo"
             value={aiInsightsEnabled}
             onValueChange={handlePhotoInsightsToggle}
-            testID="settings-ai-photo-insights"
           />
           <ToggleRow
             icon="pricetag-outline"
@@ -629,7 +621,6 @@ export default function SettingsScreen() {
             value={aiProviderValue}
             onPress={aiSettingsLoading ? undefined : () => setProviderSelectorVisible(true)}
             isLast={aiSettingsLoading || !selectedProvider}
-            testID="settings-ai-provider"
           />
           {!aiSettingsLoading && selectedProvider && aiPresentation.credentialLabel && aiPresentation.credentialStatus ? (
             <NavRow
@@ -639,7 +630,6 @@ export default function SettingsScreen() {
               accessibilityLabel={`${aiPresentation.credentialLabel}, ${aiPresentation.credentialStatus}`}
               onPress={() => openProviderKeyManager(selectedProvider)}
               isLast
-              testID="settings-provider-key"
             />
           ) : null}
         </View>
@@ -679,7 +669,6 @@ export default function SettingsScreen() {
             <Pressable
               style={styles.signOutButton}
               accessibilityRole="button"
-              testID="settings-sign-out-button"
               onPress={() => Alert.alert("Sign Out", "Are you sure you want to sign out?", [
                 { text: "Cancel", style: "cancel" },
                 { text: "Sign Out", style: "destructive", onPress: handleSignOut },
@@ -771,7 +760,7 @@ export default function SettingsScreen() {
         onRequestClose={() => setProviderSelectorVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent} testID="settings-provider-selector">
+          <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Choose AI Provider</Text>
               <Pressable accessibilityRole="button" accessibilityLabel="Close provider selector" onPress={() => setProviderSelectorVisible(false)}>
@@ -788,7 +777,6 @@ export default function SettingsScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={label}
                       accessibilityState={{ selected }}
-                      testID={`settings-provider-${provider}`}
                       style={({ pressed }) => [styles.selectorRow, pressed && styles.groupRowPressed]}
                       onPress={() => void chooseProvider(provider)}
                     >
@@ -806,15 +794,10 @@ export default function SettingsScreen() {
 
       <Modal visible={editingProvider !== null} animationType="slide" transparent onRequestClose={closeProviderKeyManager}>
         <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <View style={styles.modalContent} testID="settings-provider-key-modal">
+          <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingProvider ? providerDisplayName(editingProvider) : "AI"} API Key</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close API key settings"
-                testID="settings-provider-key-close"
-                onPress={closeProviderKeyManager}
-              >
+              <Pressable accessibilityRole="button" accessibilityLabel="Close API key settings" onPress={closeProviderKeyManager}>
                 <Ionicons name="close" size={24} color={theme.colors.textSecondary} />
               </Pressable>
             </View>
@@ -825,7 +808,6 @@ export default function SettingsScreen() {
                 </Text>
                 <TextInput
                   accessibilityLabel={`${providerDisplayName(editingProvider)} API key`}
-                  testID="settings-provider-key-input"
                   style={styles.input}
                   value={draftProviderKey}
                   onChangeText={setDraftProviderKey}

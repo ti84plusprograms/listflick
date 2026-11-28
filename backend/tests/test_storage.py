@@ -166,14 +166,10 @@ async def test_supabase_storage_deletes_every_object_in_pending_item_prefix(monk
 async def test_supabase_storage_uses_local_fallback_without_credentials(monkeypatch, tmp_path: Path):
     monkeypatch.setattr("app.services.storage.settings.supabase_url", "")
     monkeypatch.setattr("app.services.storage.settings.supabase_service_role_key", "")
-    isolated_root = tmp_path / "isolated-uploads"
-    monkeypatch.setattr("app.services.storage.settings.upload_dir", str(isolated_root))
     storage = SupabaseStorage()
-
-    assert storage._local_root() == isolated_root.resolve()
+    monkeypatch.setattr(storage, "_local_root", lambda: tmp_path / "uploads")
 
     await storage.upload("item-1/photo.jpg", b"local")
-    assert (isolated_root / "item-1" / "photo.jpg").read_bytes() == b"local"
     asset = await storage.read("item-1/photo.jpg")
     assert asset.content == b"local"
     assert asset.path == "item-1/photo.jpg"
@@ -192,22 +188,18 @@ async def test_supabase_storage_uses_local_fallback_without_credentials(monkeypa
 async def test_pending_cleanup_preserves_database_referenced_paths(monkeypatch, tmp_path: Path):
     monkeypatch.setattr("app.services.storage.settings.supabase_url", "")
     monkeypatch.setattr("app.services.storage.settings.supabase_service_role_key", "")
-    storage_root = tmp_path / "e2e-uploads"
-    monkeypatch.setattr("app.services.storage.settings.upload_dir", str(storage_root))
     storage = SupabaseStorage()
+    storage_root = tmp_path / "uploads"
+    monkeypatch.setattr(storage, "_local_root", lambda: storage_root)
     protected = storage_root / "pending" / "protected" / "1.jpg"
     orphaned = storage_root / "pending" / "orphaned" / "1.jpg"
-    normal_development_file = tmp_path / "uploads" / "pending" / "normal-draft" / "1.jpg"
     protected.parent.mkdir(parents=True)
     orphaned.parent.mkdir(parents=True)
-    normal_development_file.parent.mkdir(parents=True)
     protected.write_bytes(b"protected")
     orphaned.write_bytes(b"orphaned")
-    normal_development_file.write_bytes(b"normal development")
     old = 1_600_000_000
     os.utime(protected, (old, old))
     os.utime(orphaned, (old, old))
-    os.utime(normal_development_file, (old, old))
 
     result = await storage.cleanup_pending(
         max_age_hours=1,
@@ -216,7 +208,6 @@ async def test_pending_cleanup_preserves_database_referenced_paths(monkeypatch, 
 
     assert protected.exists()
     assert not orphaned.exists()
-    assert normal_development_file.exists()
     assert result == {"scanned": 2, "deleted": 1, "failed": 0}
 
 

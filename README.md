@@ -4,7 +4,8 @@ Mobile-first app that turns item photos into polished resale listing drafts
 for online marketplaces. The workflow is:
 
 ```text
-photos → upload and quality checks → AI analysis → review/edit → save → optional Notion sync
+photos (+ optional video) → upload and quality checks → AI analysis
+→ answer questions/review/edit → save → optional Notion sync
 ```
 
 ## Documentation
@@ -28,8 +29,8 @@ clearly separated from current implementation reference.
 
 This diagram summarizes the implemented path from sign-in and explicit AI
 provider setup through listing creation, review, and saved-listing actions.
-New users choose Gemini or Groq before ListFlick requests that provider's API
-key; ListFlick does not assume a default provider.
+New users choose Gemini, Groq, or Claude before ListFlick requests that
+provider's API key; ListFlick does not assume a default provider.
 
 ![ListFlick user flow](docs/generated/user-flow.svg)
 
@@ -82,12 +83,6 @@ cd mobile && npm test
 make smoke
 ```
 
-ListFlick also includes six local Maestro flows for authentication and
-onboarding, provider configuration, listing creation, explicit AI-assisted
-field improvement, photo management, and server-backed image download. They
-use an isolated deterministic backend and do not call Gemini or Groq. See the
-[local Maestro UI guide](docs/how-to/maestro-create-listing.md).
-
 See [Local development](docs/tutorials/local-development.md) for the complete
 setup and [Makefile commands](docs/reference/makefile-commands.md) for the
 repository command reference.
@@ -98,9 +93,11 @@ repository command reference.
 - FastAPI verifies Firebase ID tokens and scopes item operations to the UID.
 - PostgreSQL stores item records, idempotency claims, listing state, and
   resumable analysis leases.
-- Gemini, Groq, or Claude provides request-inline analysis and listing generation.
-- Private Supabase Storage stores deployed images; local development can use
-  the `backend/uploads/` fallback.
+- Gemini, Groq, or Claude (Anthropic) provides request-inline analysis and
+  listing generation. All of a listing's photos, plus selected video frames,
+  go to the provider in one call.
+- Private Supabase Storage stores deployed images and the optional listing
+  video; local development can use the `backend/uploads/` fallback.
 - Render hosts the backend deployment.
 - EAS builds the mobile development, preview, and production clients.
 - Notion synchronization is optional and deployment-configured.
@@ -118,14 +115,14 @@ that provider, and are not persisted by ListFlick. Settings labels a nonblank
 key as **Saved on this device**, not configured or valid: the provider validates
 it on the next AI request, and a rejection opens the replacement-key flow.
 
-Self-hosters may instead configure `GEMINI_API_KEY` and/or `GROQ_API_KEY` and
-explicitly set `ALLOW_SERVER_AI_KEY_FALLBACK=true`. This makes the deployment
-owner responsible for provider usage and cost. In this mode, a user without a
-saved preference uses the deployment's `AI_PROVIDER`; **AI Provider — Choose**
-in Settings means no user override is saved. A saved preference overrides that
-default. The current request-inline analysis model keeps device credentials
-request-scoped; a future autonomous worker will require a separate
-credential-delegation/storage design.
+Self-hosters may instead configure `GEMINI_API_KEY`, `GROQ_API_KEY` and/or
+`ANTHROPIC_API_KEY` and explicitly set `ALLOW_SERVER_AI_KEY_FALLBACK=true`. This
+makes the deployment owner responsible for provider usage and cost. In this
+mode, a user without a saved preference uses the deployment's `AI_PROVIDER`;
+**AI Provider — Choose** in Settings means no user override is saved. A saved
+preference overrides that default. The current request-inline analysis model
+keeps device credentials request-scoped; a future autonomous worker will require
+a separate credential-delegation/storage design.
 
 The tracked Render blueprint keeps server fallback disabled. It contains no
 provider key values, backend URL, Firebase project ID, Supabase project ID, or
@@ -145,10 +142,31 @@ required connection string.
 ## Product status
 
 Implemented capabilities include image upload and quality checks, multi-image
-listing generation, Gemini/Groq provider selection, AI Insights, listing
-editing, image management, local inventory, Firebase Authentication, private
-Supabase Storage, optional Notion synchronization, profile defaults, sharing,
-reconnect-driven upload/analysis recovery, and Render/EAS deployment paths.
+listing generation, Gemini/Groq/Claude provider selection, AI Insights, listing
+editing (including AI rewrite actions such as **More searchable title**), image
+management, local inventory, Firebase Authentication, private Supabase Storage,
+optional Notion synchronization, profile defaults, sharing, reconnect-driven
+upload/analysis recovery, and Render/EAS deployment paths.
+
+Recent additions:
+
+- One optional video per listing: record in the camera's Video mode or pick one
+  from the library, preview it, and manage it in Manage Photos. The backend
+  keeps the sharpest frames and sends them with the photos for analysis.
+- Listing questions: when a detail would change the price or a buyer is likely
+  to ask, the review screen shows questions you can answer or skip
+  (`POST /api/items/{id}/answers`). The readiness checklist re-checks earlier
+  tips after photo or text edits (`POST /api/items/recheck`).
+- A Home screen that groups listings under **Needs attention** and **Ready to
+  post** from a live readiness checklist, with a bottom pill that prompts for
+  the one-time pickup area and payment setup.
+- Several unfinished listings at once; each appears as its own **Unfinished
+  listing** row on Home.
+- Settings preferences: Appearance (Light or Dark) and local Notifications for
+  when a listing is ready or needs attention. Notifications are local only and
+  are sent only while the app is in the background. Currency supports USD
+  only, and controls for features that are not built yet show "Feature yet to
+  be implemented".
 
 The current Render configuration has no background worker. If a web process
 stops mid-analysis, the mobile app resumes the durable job after reconnecting;

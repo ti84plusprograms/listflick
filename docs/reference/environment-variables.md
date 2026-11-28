@@ -4,28 +4,27 @@
 
 | Variable | Purpose |
 |---|---|
-| `APP_ENV` | runtime label; must be exactly `e2e` before deterministic fixture mode can start |
-| `E2E_MODE` | local-only deterministic AI and simulated-auth backend switch; defaults to `false` and fails closed unless all E2E isolation checks pass |
-| `E2E_REQUIRE_BYOK_UI` | E2E-only health variant that reports no server fallback or configured provider key so Maestro can exercise first-time provider UX |
 | `AI_PROVIDER` | backend default (`gemini`, `groq`, or `claude`); also the mobile effective provider when fallback is enabled and the user has no saved preference |
 | `ALLOW_SERVER_AI_KEY_FALLBACK` | allow server Gemini/Groq/Claude keys without a request BYOK key; the code, example, and Render blueprint defaults are `false`; when explicitly enabled, it also allows `AI_PROVIDER` to resolve an unset mobile preference |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini credentials/model |
+| `GEMINI_MODEL_FALLBACKS`, `GEMINI_MAX_RETRIES`, `GEMINI_REQUEST_TIMEOUT` | Gemini fallback model list (comma-separated), retry count (`2`), and request timeout in seconds (`60`) |
 | `GROQ_API_KEY` | Groq credential; keep server-side and never commit a real key |
 | `GROQ_VISION_MODEL` | Supported Groq vision model ID; must be `qwen/qwen3.8-27b` |
 | `GROQ_VISION_REASONING_EFFORT` | Groq vision reasoning mode; `none` disables Qwen reasoning, `default` enables it |
 | `GROQ_TEXT_MODEL` | Groq text model ID; defaults to `openai/gpt-oss-20b` |
+| `GROQ_MAX_RETRIES`, `GROQ_REQUEST_TIMEOUT` | Groq retry count (`2`) and request timeout in seconds (`30`) |
 | `ANTHROPIC_API_KEY` | Claude (Anthropic) credential for server fallback; keep server-side and never commit a real key |
 | `CLAUDE_VISION_MODEL` | Claude model used for photo analysis; defaults to `claude-sonnet-5-5` |
 | `CLAUDE_TEXT_MODEL` | Claude model used for listing writing and pricing; defaults to `claude-sonnet-5-5` |
+| `CLAUDE_MAX_RETRIES`, `CLAUDE_REQUEST_TIMEOUT` | Claude retry count (`2`) and request timeout in seconds (`90`) |
 | `DATABASE_URL` | PostgreSQL connection used by the asyncpg database layer |
 | `ANALYSIS_LEASE_SECONDS` | request-inline analysis lease duration; defaults to `300` |
 | `ANALYSIS_MAX_ATTEMPTS` | maximum claims before terminal failure; defaults to `3` |
 | `PENDING_ITEM_RETENTION_HOURS` | resumable unsaved-item retention; defaults to `168` (seven days) |
-| `UPLOAD_DIR` | filesystem-storage root used when Supabase is not configured; defaults to `./uploads` |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | server-only Supabase Storage credential |
 | `SUPABASE_STORAGE_BUCKET` | private image bucket, normally `images` (also holds listing videos) |
-| `MAX_VIDEO_UPLOAD_MB` | largest listing video the API accepts; defaults to `100` |
+| `MAX_VIDEO_UPLOAD_MB` | largest listing video the API accepts; defaults to `100`. Must be positive. Video upload requests whose `Content-Length` exceeds this plus room for 24 frames get `413` before the body is read |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Firebase Admin service-account JSON secret |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | local Firebase service-account path |
 | `CORS_ORIGINS` | comma-separated credentialed browser origins; `*` is rejected |
@@ -53,29 +52,19 @@ provider validates the key on the next AI request; a rejected key returns
 `AI_PROVIDER_CREDENTIAL_INVALID` and the app offers **Replace API Key**.
 
 The tracked Render service explicitly sets
-`ALLOW_SERVER_AI_KEY_FALLBACK=false`. Its `GEMINI_API_KEY` and `GROQ_API_KEY`
-entries use `sync: false`, so a Blueprint never contains or copies a provider
-secret. A self-hoster who wants server-paid requests must supply their own key,
-change the fallback flag to `true`, and accept the usage and cost. Never enable
-fallback on a deployment backed by someone else's provider account.
+`ALLOW_SERVER_AI_KEY_FALLBACK=false`. Its `GEMINI_API_KEY`, `GROQ_API_KEY` and
+`ANTHROPIC_API_KEY` entries use `sync: false`, so a Blueprint never contains or
+copies a provider secret. A self-hoster who wants server-paid requests must
+supply their own key, change the fallback flag to `true`, and accept the usage
+and cost. Never enable fallback on a deployment backed by someone else's provider account.
 
 The variables remain server-only. `/health` exposes the provider name, whether
-server fallback is enabled, provider-configured booleans, and effective Notion
-capability metadata. It never returns credential or destination values.
+server fallback is enabled, provider-configured booleans (`gemini_configured`,
+`groq_configured`, `claude_configured`), selected model IDs, and effective
+Notion capability metadata. It never returns credential or destination values.
 
-`E2E_MODE=true` is accepted only with `APP_ENV=e2e`, a localhost PostgreSQL
-database whose name contains `e2e`, server-key fallback disabled, Notion writes
-disabled, and no Supabase configuration. In that isolated mode, `/health`
-reports `ai_mode=deterministic_e2e`; analysis uses checked-in fixture output and
-does not construct a Gemini or Groq client. This mode is for the local Maestro
-flow only and is not configured in `render.yaml` or any EAS profile.
-`E2E_REQUIRE_BYOK_UI=true` additionally requires `E2E_MODE=true`; it changes
-only the E2E health presentation and leaves the deterministic provider guard in
-place.
-
-The E2E startup command overrides `UPLOAD_DIR` with `backend/.e2e/uploads`, so
-its cleanup and item deletion cannot touch normal development files under
-`backend/uploads`.
+`UPLOAD_DIR` exists in the example configuration, but the current storage
+abstraction uses its `uploads/` fallback root.
 PostgreSQL is required; the backend applies versioned schema migrations from
 `backend/app/db/migrations.py` during startup.
 
@@ -126,16 +115,9 @@ key.
 | `EXPO_PUBLIC_API_URL` | backend base URL compiled into the mobile app |
 | `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | self-hoster's Google OAuth web client ID; public identifier used for Google Sign-In |
 | `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | self-hoster's Google OAuth iOS client ID; public identifier required for Google Sign-In on iOS |
-| `LISTFLICK_E2E_API_URL` | local development-client API override and simulated-auth gate; accepts only a loopback HTTP URL |
-| `LISTFLICK_E2E_RESET_AI_SETTINGS` | when exactly `true`, clears the signed-in E2E user's provider selection and provider keys at app startup; requires the loopback override and is ignored outside development |
 
 Only public, non-secret configuration belongs in the mobile environment. The
 repository's preview and production EAS profiles intentionally contain no API
 URL; configure `EXPO_PUBLIC_API_URL` in your own EAS environment before
 building. If the Google client IDs are omitted, the app hides Google Sign-In;
 email/password authentication remains available once Firebase is configured.
-The two `LISTFLICK_E2E_*` variables are local test-process controls, not public
-deployment configuration; no EAS profile enables them. The mobile runtime uses
-the E2E URL and simulated identity only when `__DEV__` is also true, so setting
-the manifest value cannot activate simulated authentication in a production
-build.

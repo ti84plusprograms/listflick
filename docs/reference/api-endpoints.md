@@ -5,12 +5,12 @@ generic auth errors and scopes records to the verified Firebase UID.
 
 Provider-execution routes (`POST /api/items/analyze`, `POST
 /api/items/{id}/analysis-jobs`, `POST /api/items/improve`, and `POST
-/api/items/recheck`, plus `POST /api/items/{id}/answers` unless `dismiss` is true) accept the
-effective provider in `X-ListFlick-AI-Provider` and an optional device key in
-`X-ListFlick-AI-Key`. A device key is never included in request bodies,
-responses, or durable analysis state. Older clients without the provider header
-use the configured `AI_PROVIDER`. The status polling route does not require
-either header.
+/api/items/recheck`, plus `POST /api/items/{id}/answers` when it has an answer
+or edit to apply) accept the effective provider in `X-ListFlick-AI-Provider`
+and an optional device key in `X-ListFlick-AI-Key`. A device key is never
+included in request bodies, responses, or durable analysis state. Older clients
+without the provider header use the configured `AI_PROVIDER`. The status
+polling route does not require either header.
 
 The mobile client resolves the effective provider as follows:
 
@@ -115,8 +115,20 @@ It re-prices only when an answer or change affects price, keeps a manual
 `active_price`, moves a picked tier (`ai_fast_sale`, `ai_recommended`,
 `ai_high_ask`) to the new suggestion, revises the description, persists the
 result and returns `{item_id, listing, analysis, missing_checklist, repriced,
-active_price, active_price_source}`. `dismiss: true` clears every open question
-without a provider call.
+active_price, active_price_source}`. `answers` holds at most 8 entries. `dismiss: true`
+clears every open question without a provider call; a request with no non-blank
+answer and no `changes` also needs no provider.
+
+`POST /api/items/recheck` takes `{item_id, title, description, category,
+condition, asking_price, tips: [{text, done}], include_images}`. `tips` holds at
+most 12 entries and the text fields are length-capped. With `item_id`, the item
+must belong to the caller (`404` otherwise). With `include_images: true`, the
+route loads up to 8 of the item's stored photos and sends them to the provider
+as one numbered contact sheet; without it, only the text tips are checked and a
+photo tip is never marked done. It returns `{item_id, tips, image_quality_feedback,
+checked_images}`: the tips keep their order with `done` updated, at most 2 new
+tips are added, and the list is capped at 6 tips. Nothing is stored by this
+route; the mobile client saves the tip state with the listing.
 
 Each listing can have one video, matching Facebook Marketplace's separate
 "Add video" button (the cover stays a photo). Video uploads are multipart with
@@ -128,8 +140,11 @@ farthest-point selection on an 8x8 colour signature, stopping at
 near-duplicates but keeping 3 frames for videos of 4 seconds or more) and keeps
 at most 6. Analysis sends the photos first, then
 `min(6, max(2, 8 - photo_count))` frames (Groq: within its 5-image cap), and the
-prompt says which images are frames and when they were taken. A second upload
-replaces the first video. `GET /api/items/{id}` returns `video: {id, url,
+prompt says which images are frames and when they were taken. Responses are
+`415` for another file type, `413` when the video or a frame is too large, and
+`400` for an empty video, more than 24 frames or a non-image frame. A middleware also answers `413`
+before the body is read when `Content-Length` exceeds `MAX_VIDEO_UPLOAD_MB` plus
+room for the frames. A second upload replaces the first video. `GET /api/items/{id}` returns `video: {id, url,
 content_type, size_bytes, duration_seconds, frame_count, cover_from_video}` or
 `null`. Item delete, draft discard, expiry and account deletion remove the video
 and its frames. `upload-video` accepts the same `Idempotency-Key` header as the
@@ -159,6 +174,10 @@ contract type, and affected tests together when a response changes.
 `reason`. The reason is `configured`, `backend_disabled`, or
 `missing_credentials`; the response never includes a Notion key or destination
 identifier.
+
+`/health` also reports `gemini_configured`, `groq_configured`, and
+`claude_configured` booleans and the selected `claude_vision_model` and
+`claude_text_model`.
 
 The health response also exposes `allow_server_ai_key_fallback` so clients can
 avoid requiring a device key when the deployment owner has explicitly enabled

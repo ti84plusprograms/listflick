@@ -645,13 +645,12 @@ export default function ReviewScreen() {
     : (isDescriptionLong ? displayDescription.substring(0, 200) + "..." : displayDescription);
 
   return (
-    <View style={styles.container} testID="review-screen">
+    <View style={styles.container}>
       {/* Custom Header */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <Pressable
           onPress={() => router.back()}
           style={styles.headerButton}
-          testID="review-back"
           accessibilityLabel="Back"
         >
           <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
@@ -664,7 +663,6 @@ export default function ReviewScreen() {
           onPress={() => setShowOverflow(!showOverflow)}
           style={styles.headerButtonRight}
           disabled={savingPhotos}
-          testID="review-more-actions"
           accessibilityLabel="More listing actions"
         >
           <Ionicons name="ellipsis-horizontal" size={24} color={theme.colors.textPrimary} />
@@ -678,7 +676,6 @@ export default function ReviewScreen() {
         <Pressable
           style={styles.managePhotosBtn}
           onPress={navigateToPhotos}
-          testID="review-manage-photos"
           accessibilityLabel="Manage Photos"
         >
           <Ionicons name="images-outline" size={18} color={theme.colors.textPrimary} />
@@ -698,12 +695,12 @@ export default function ReviewScreen() {
             onSkip={handleSkipQuestions}
           />
 
-          <Text style={styles.titleText} testID="review-listing-title">
+          <Text style={styles.titleText}>
             {listing.title || "Untitled Listing"}
           </Text>
 
           <View style={styles.priceRow}>
-            <Text style={styles.priceText} testID="review-listing-price">
+            <Text style={styles.priceText}>
               {formatMoney(activePriceNumber)}
             </Text>
             {highAskPriceNumber > activePriceNumber && (
@@ -711,7 +708,7 @@ export default function ReviewScreen() {
             )}
           </View>
 
-          <Text style={styles.descriptionText} testID="review-listing-description">
+          <Text style={styles.descriptionText}>
             {descriptionToShow}
           </Text>
           {isDescriptionLong && !descriptionExpanded && (
@@ -796,7 +793,6 @@ export default function ReviewScreen() {
               style={[styles.overflowItem, savingPhotos && { opacity: 0.5 }]}
               onPress={handleSavePhotos}
               disabled={savingPhotos}
-              testID="review-save-photos"
               accessibilityLabel="Save Photos to Device"
             >
               <Ionicons
@@ -814,7 +810,6 @@ export default function ReviewScreen() {
                 style={styles.overflowItem}
                 onPress={handleDiscard}
                 disabled={saving || savingPhotos}
-                testID="review-discard-listing"
               >
                 <Ionicons name="trash-outline" size={20} color="#E53E3E" />
                 <Text style={[styles.overflowItemText, { color: "#E53E3E" }]}>Discard Listing</Text>
@@ -831,7 +826,6 @@ export default function ReviewScreen() {
             style={styles.primaryButton}
             onPress={handleSave}
             disabled={saving}
-            testID="review-save-to-inventory"
             accessibilityLabel="Save to Inventory"
           >
             <Ionicons name="bookmark-outline" size={20} color={theme.colors.background} />
@@ -853,7 +847,6 @@ export default function ReviewScreen() {
         <Pressable
           style={styles.secondaryButton}
           onPress={navigateToEdit}
-          testID="review-edit-listing"
           accessibilityLabel="Edit Listing"
         >
           <Ionicons name="create-outline" size={20} color={theme.colors.textPrimary} />

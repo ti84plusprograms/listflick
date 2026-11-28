@@ -9,7 +9,6 @@ backend/.env
 mobile/.env
 mobile/.metrics/
 backend/uploads/
-backend/.e2e/
 backend/data.db
 backend/service-account.json
 service-account*.json

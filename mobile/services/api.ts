@@ -18,7 +18,7 @@ import type {
 import type { GeneratedListing, ImageQualityFeedback, ListingVideo } from "@/types/listing";
 import type { RecheckListingRequest, RecheckListingResponse } from "@/types/api";
 
-import { getAuthUser, getAuthIdToken } from './authSession';
+import { getAuth, getIdToken } from '@react-native-firebase/auth';
 import { getDeveloperNotionMode, getEffectiveAIProvider, getSelectedAIProvider } from "./storage";
 import { authDebugLog, authDebugWarn } from "../utils/authDebug";
 import { clearSignedImageUrlCacheForItem } from "../utils/signedImageUrlCache";
@@ -73,7 +73,7 @@ async function fetchWithAuth(
   init?: RequestInit,
   options: RequestOptions = {}
 ): Promise<Response> {
-  const currentUser = getAuthUser();
+  const currentUser = getAuth(getApp()).currentUser;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -84,8 +84,8 @@ async function fetchWithAuth(
     optionHeaders.forEach((value, key) => headers.set(key, value));
     if (currentUser) {
       try {
-        const token = await getAuthIdToken(currentUser, forceRefresh);
-        if (token) headers.set('Authorization', `Bearer ${token}`);
+        const token = await getIdToken(currentUser, forceRefresh);
+        headers.set('Authorization', `Bearer ${token}`);
       } catch (error) {
         authDebugWarn('API Firebase token acquisition failed', {
           forceRefresh,
@@ -181,7 +181,7 @@ async function parseApiError(
 }
 
 async function aiRequestHeaders(): Promise<HeadersInit> {
-  const currentUser = getAuthUser();
+  const currentUser = getAuth(getApp()).currentUser;
   if (!currentUser) throw new ApiError("Please sign in to use AI features.", 401);
   const health = await getHealth();
   const savedProvider = await getSelectedAIProvider();
@@ -532,7 +532,7 @@ export async function improveListing(payload: {
 
 /** True when AI calls can run now: signed in, a provider chosen, and a device key or server fallback. */
 export async function canUseAIProvider(): Promise<boolean> {
-  const currentUser = getAuthUser();
+  const currentUser = getAuth(getApp()).currentUser;
   if (!currentUser) return false;
   const health = await getHealth().catch(() => null);
   const provider = await getEffectiveAIProvider(health);

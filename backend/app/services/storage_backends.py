@@ -73,7 +73,7 @@ class SupabaseStorage:
         return path
 
     def _local_root(self) -> Path:
-        return Path(settings.upload_dir).expanduser().resolve()
+        return Path("uploads").resolve()
 
     async def upload(
         self,

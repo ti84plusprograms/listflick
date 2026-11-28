@@ -37,8 +37,6 @@ local `.env` files, Firebase service-account files, or installed local skills.
 - Product journey: [User-flow Mermaid source](user-flow.mmd) ([generated SVG](generated/user-flow.svg))
 - New contributor: [Local development tutorial](tutorials/local-development.md)
 - First end-to-end workflow: [Create your first listing](tutorials/first-listing.md)
-- Local UI automation: [Local Maestro UI flows](how-to/maestro-create-listing.md),
-  including [authentication and onboarding](how-to/maestro-auth-onboarding.md)
 - Physical iPhone: [Mobile development build](tutorials/mobile-development-build.md)
 - Daily commands: [Makefile reference](reference/makefile-commands.md)
 - Deployment: [Preview and production deployment](how-to/preview-and-production-deployment.md)

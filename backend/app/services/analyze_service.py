@@ -27,7 +27,6 @@ from app.services.ai_service import ai_service
 from app.services.ai_credentials import (
     AICredentialRequiredError,
     AIProviderCredentialInvalidError,
-    ResolvedAICredential,
     resolve_ai_credential,
     selected_provider,
 )
@@ -78,13 +77,6 @@ def active_ai_provider(request_provider: str | None = None) -> str:
 
 def ai_service_for_request(request_key: str | None = None, request_provider: str | None = None):
     provider = active_ai_provider(request_provider)
-    if settings.e2e_mode:
-        from app.services.e2e_ai_service import DeterministicE2EAIService
-
-        return (
-            DeterministicE2EAIService(provider=provider),
-            ResolvedAICredential(provider=provider, value="", source="e2e_fixture"),
-        )
     try:
         credential = resolve_ai_credential(provider, request_key)
     except AICredentialRequiredError as exc:

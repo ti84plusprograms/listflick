@@ -18,7 +18,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { getAuthUser } from "../services/authSession";
+import { getApp } from "@react-native-firebase/app";
+import { getAuth } from "@react-native-firebase/auth";
 import { theme, themedStyles } from "../constants/theme";
 import { CameraPreview } from "../components/camera/CameraPreview";
 import { PhotoManager } from "../components/camera/PhotoManager";
@@ -105,7 +106,7 @@ export default function CameraScreen() {
   const ensureAIProviderReady = useCallback(async (): Promise<boolean> => {
     if (aiPreflightPassed.current) return true;
 
-    const currentUser = getAuthUser();
+    const currentUser = getAuth(getApp()).currentUser;
     if (!currentUser) {
       Alert.alert("Sign In Required", "Sign in before starting an AI listing.");
       return false;
@@ -124,7 +125,7 @@ export default function CameraScreen() {
       ? await hasProviderApiKey(currentUser.uid, provider)
       : false;
     console.log(
-      `[AI] Camera pre-flight: aiMode=${health?.ai_mode ?? "unknown"}, savedProvider=${savedProvider ?? "none"}, backendProvider=${backendProvider}, effectiveProvider=${provider ?? "none"}, deviceKey=${hasDeviceKey}, fallbackEnabled=${fallbackEnabled}, providerServerKeyConfigured=${providerServerKeyConfigured}, serverFallbackAvailable=${fallbackAvailable}, healthAvailable=${health !== null}`,
+      `[AI] Camera pre-flight: savedProvider=${savedProvider ?? "none"}, backendProvider=${backendProvider}, effectiveProvider=${provider ?? "none"}, deviceKey=${hasDeviceKey}, fallbackEnabled=${fallbackEnabled}, providerServerKeyConfigured=${providerServerKeyConfigured}, serverFallbackAvailable=${fallbackAvailable}, healthAvailable=${health !== null}`,
     );
     if (!provider) {
       showAIProviderRequiredPrompt();
@@ -378,7 +379,7 @@ export default function CameraScreen() {
   /* ── Render ────────────────────────────────────────────── */
 
   return (
-    <View style={styles.container} testID="camera-screen">
+    <View style={styles.container}>
       {/* Top bar */}
       <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
         <Pressable onPress={() => router.back()} style={styles.topBarButton}>
@@ -409,7 +410,6 @@ export default function CameraScreen() {
           {/* Next Button */}
           <Pressable
             onPress={() => void goToProcessing(imageUris)}
-            testID="camera-next"
             accessibilityLabel="Analyze selected photos"
             style={[styles.topBarButton, { marginLeft: 12 }, (!hasMedia || startingProcessing || recordingSeconds !== null) && { opacity: 0.5 }]}
             disabled={!hasMedia || startingProcessing || recordingSeconds !== null}
@@ -480,7 +480,6 @@ export default function CameraScreen() {
         <Pressable
           style={styles.sideAction}
           onPress={pickFromGallery}
-          testID="camera-open-library"
           accessibilityLabel="Choose more photos from library"
         >
           <View style={styles.sideIconBox}>

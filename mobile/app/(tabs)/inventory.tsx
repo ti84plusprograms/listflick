@@ -115,7 +115,6 @@ export default function InventoryScreen() {
     <Pressable
       style={styles.recentlyDeletedLink}
       onPress={() => router.push("/recently-deleted" as never)}
-      testID="inventory-recently-deleted"
       accessibilityLabel="Recently Deleted"
     >
       <Ionicons name="trash-outline" size={18} color={theme.colors.textSecondary} />
@@ -139,7 +138,7 @@ export default function InventoryScreen() {
 
   if (listings.length === 0) {
     return (
-      <View style={styles.empty} testID="inventory-screen">
+      <View style={styles.empty}>
         <Ionicons name="cube-outline" size={48} color={theme.colors.textTertiary} style={styles.emptyIcon} />
         <Text style={styles.emptyTitle}>No saved listings yet</Text>
         <Text style={styles.emptyText}>Take a photo to generate your first listing.</Text>
@@ -155,11 +154,10 @@ export default function InventoryScreen() {
   }
 
   return (
-    <View style={styles.container} testID="inventory-screen">
+    <View style={styles.container}>
       {filterBar}
       {recentlyDeletedLink}
       <FlatList
-        testID="inventory-list"
         data={visibleListings}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
@@ -171,7 +169,6 @@ export default function InventoryScreen() {
             <View style={styles.card}>
               <Pressable
                 onPress={() => openListing(item)}
-                testID="inventory-open-listing"
                 accessibilityRole="button"
                 accessibilityLabel={`Open ${title} listing, ${price}, ${statusLabel(item)}`}
                 accessibilityHint="Opens listing details"
@@ -210,7 +207,6 @@ export default function InventoryScreen() {
               </Pressable>
               <Pressable
                 style={styles.removeButton}
-                testID="inventory-remove-listing"
                 accessibilityRole="button"
                 accessibilityLabel={`Remove ${title} from inventory`}
                 onPress={() => handleDeleteListing(item)}
