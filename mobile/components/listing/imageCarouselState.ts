@@ -14,3 +14,12 @@ export function carouselIndexAfterMomentum(
 
   return clampCarouselIndex(Math.round(contentOffsetX / pageWidth), imageCount);
 }
+
+export type CarouselSlide = { kind: "photo" | "video"; uri: string };
+
+/** Photos keep their listing order (cover first); the video is always the last slide. */
+export function carouselSlides(imageUris: string[], videoUri?: string | null): CarouselSlide[] {
+  const slides: CarouselSlide[] = imageUris.map((uri) => ({ kind: "photo", uri }));
+  if (videoUri) slides.push({ kind: "video", uri: videoUri });
+  return slides;
+}

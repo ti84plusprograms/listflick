@@ -12,8 +12,12 @@
       "bundleIdentifier": "com.listingassistant.app",
       "googleServicesFile": "./config/GoogleService-Info.plist",
       "infoPlist": {
-        "NSCameraUsageDescription": "Take photos of items to generate marketplace listings.",
-        "NSPhotoLibraryUsageDescription": "Select photos of items to generate marketplace listings."
+        "NSCameraUsageDescription": "Take photos and videos of items to generate marketplace listings.",
+        "NSPhotoLibraryUsageDescription": "Select photos and videos of items to generate marketplace listings."
+      },
+      "icon": {
+        "light": "./assets/images/icon.png",
+        "dark": "./assets/images/icon-dark.png"
       }
     },
     "android": {
@@ -32,33 +36,45 @@
           "image": "./assets/images/logo-mark.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF"
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "image": "./assets/images/logo-mark-dark.png",
+            "backgroundColor": "#121212"
+          }
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow ListFlick to access your camera to photograph items.",
-          "microphonePermission": false,
-          "recordAudioAndroid": false
+          "cameraPermission": "Allow ListFlick to access your camera to photograph and film items.",
+          "microphonePermission": "Allow ListFlick to record sound with item videos. You can record without sound.",
+          "recordAudioAndroid": true
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow ListFlick to access your photos.",
-          "microphonePermission": false
+          "photosPermission": "Allow ListFlick to access your photos and videos.",
+          "microphonePermission": "Allow ListFlick to record sound with item videos. You can record without sound."
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow ListFlick to save listing photos to your camera roll.",
-          "savePhotosPermission": "Allow ListFlick to save listing photos to your camera roll.",
+          "photosPermission": "Allow ListFlick to save listing photos and videos to your camera roll.",
+          "savePhotosPermission": "Allow ListFlick to save listing photos and videos to your camera roll.",
           "isAccessMediaLocationEnabled": false,
           "granularPermissions": [
-            "photo"
+            "photo",
+            "video"
           ]
+        }
+      ],
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": false,
+          "supportsPictureInPicture": false
         }
       ],
       "@react-native-firebase/app",
@@ -78,7 +94,9 @@
         }
       ],
       "./plugins/withFirebaseStaticFix.js",
-      "./plugins/withFirebaseSceneInit.js"
+      "./plugins/withFirebaseSceneInit.js",
+      "./plugins/withoutPushEntitlement.js",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true

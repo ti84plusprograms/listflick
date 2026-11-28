@@ -54,6 +54,7 @@ def build_missing_checklist(
     description = listing.description or ""
 
     return [
+        *_open_question_items(listing),
         _brand_item(analysis),
         _text_item("model", _has_model(text), "AI may have inferred a model; confirm before posting."),
         _text_item("dimensions", _has_dimensions(text), "Measurements are useful for buyer fit."),
@@ -66,6 +67,36 @@ def build_missing_checklist(
         _pickup_shipping_item(description),
         _price_item(listing),
     ]
+
+
+def _open_question_items(listing: GeneratedListing) -> list[ChecklistItem]:
+    """Unanswered price and buyer questions are missing information the seller still has to give."""
+    items: list[ChecklistItem] = []
+    price_question = listing.price_question
+    if price_question is not None and price_question.question:
+        items.append(
+            ChecklistItem(
+                key="price_question",
+                label="Price detail",
+                status="missing",
+                reason=price_question.why or "This detail can change the price a lot.",
+                suggested_question=price_question.question,
+            )
+        )
+    for index, question in enumerate(listing.buyer_questions):
+        if not question.question:
+            continue
+        items.append(
+            ChecklistItem(
+                key=f"buyer_question_{index + 1}",
+                label="Buyer question",
+                status="missing",
+                reason="Buyers usually ask this and the photos do not answer it."
+                + (" It can change the price." if question.affects_price else ""),
+                suggested_question=question.question,
+            )
+        )
+    return items
 
 
 def _item(key: str, status: str, reason: str | None = None) -> ChecklistItem:

@@ -6,6 +6,8 @@ This document describes the mobile listing image download and camera-roll export
 
 Users can export listing photos to their native device photo library (Camera Roll on iOS, Gallery/Google Photos on Android) from the Review screen overflow menu (**Save Photos to Device**).
 
+When the listing has a video, the same action is **Save Photos & Video**: `saveListingMediaToLibrary` saves the photos in listing order (photo 1, the cover, first) and then the video, with the same one-tap `MediaLibrary.saveToLibraryAsync` path. The permission request adds `video` only in that case. A backend video (`/api/items/<id>/video/<video_id>`) resolves through the same signed-URL flow and is saved from a temporary `.mp4`/`.mov` file so the library treats it as a video. A denied permission offers **Open Settings** when the system will not ask again.
+
 The download workflow is managed by `mobile/services/imageDownload.ts` and `mobile/services/imageRetrieval.ts`, called consistently from `mobile/app/review.tsx` and `mobile/hooks/useReviewListing.ts`.
 
 ## Supported URI schemes

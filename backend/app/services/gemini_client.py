@@ -12,6 +12,7 @@ from google.genai import types
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.image_payload import collect_images, image_label
 from app.utils.json_parser import parse_and_validate
 from app.services.ai_credentials import AIProviderCredentialInvalidError
 
@@ -112,9 +113,11 @@ class GeminiClient:
         schema_model: type[T],
         max_output_tokens: int = 800,
         max_retries: int | None = None,
+        images: list[bytes] | None = None,
     ) -> T:
         retries = max_retries if max_retries is not None else settings.gemini_max_retries
         last_error: Exception | None = None
+        photos = collect_images(image_bytes, images)
 
         for attempt in range(retries + 1):
             prompt = user_prompt
@@ -129,8 +132,10 @@ class GeminiClient:
                     prompt += f"\nError: {last_error}"
 
             contents: list[Any] = [prompt]
-            if image_bytes:
-                contents.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
+            for index, photo in enumerate(photos):
+                if len(photos) > 1:
+                    contents.append(image_label(index, len(photos)))
+                contents.append(types.Part.from_bytes(data=photo, mime_type=mime_type))
 
             try:
                 raw = await asyncio.wait_for(

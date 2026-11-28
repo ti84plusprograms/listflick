@@ -1,14 +1,27 @@
 import { router } from "expo-router";
 import React, { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Switch, KeyboardAvoidingView, Platform } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Switch, KeyboardAvoidingView, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useEditListingForm } from "../hooks/useEditListingForm";
 import { CONDITION_OPTIONS } from "../utils/descriptionFormatter";
-import { theme } from "../constants/theme";
+import { theme, themedStyles } from "../constants/theme";
 import { PricingTiers } from "../components/listing/PricingTiers";
 import { Logistics } from "../components/listing/Logistics";
+import type { ImprovementAction } from "../types/listing";
+
+// Every rewrite the backend supports, matching the web version's Edit screen.
+const IMPROVE_ACTIONS: [ImprovementAction, string][] = [
+  ["make_title_more_searchable", "More searchable title"],
+  ["make_description_shorter", "Shorter description"],
+  ["make_description_more_casual", "More casual"],
+  ["make_description_more_professional", "More professional"],
+  ["add_condition_details", "Add condition details"],
+  ["improve_buyer_trust", "Build buyer trust"],
+  ["make_price_more_competitive", "More competitive price"],
+  ["generate_platform_ready_version", "Marketplace-ready polish"],
+];
 
 export default function EditListingScreen() {
   const insets = useSafeAreaInsets();
@@ -45,6 +58,9 @@ export default function EditListingScreen() {
     insightsEnabled,
     improving,
     improvementSummary,
+    improvingAction,
+    improveSummary,
+    repricingLabel,
     brandHint,
     detailsHint,
     applyPriceTier,
@@ -56,7 +72,14 @@ export default function EditListingScreen() {
     <View style={styles.container} testID="edit-listing-screen">
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => router.back()} style={styles.headerButton}>
+        <Pressable
+          onPress={() => router.back()}
+          style={[styles.headerButton, repricingLabel !== null && styles.headerButtonDisabled]}
+          disabled={repricingLabel !== null}
+          accessibilityRole="button"
+          accessibilityLabel="Back to preview"
+          accessibilityState={{ disabled: repricingLabel !== null }}
+        >
           <Ionicons name="chevron-back" size={20} color={theme.colors.textPrimary} />
           <Text style={styles.headerButtonText}>Preview</Text>
         </Pressable>
@@ -65,11 +88,21 @@ export default function EditListingScreen() {
           onPress={saveEdits}
           style={styles.headerButtonRight}
           testID="edit-listing-save"
-          accessibilityLabel="Save listing edits"
+          disabled={repricingLabel !== null}
+          accessibilityRole="button"
+          accessibilityLabel={repricingLabel ?? "Save listing edits"}
         >
-          <Text style={styles.saveText}>Save</Text>
+          <Text style={[styles.saveText, repricingLabel !== null && styles.saveTextBusy]}>
+            {repricingLabel ? "Saving…" : "Save"}
+          </Text>
         </Pressable>
       </View>
+      {repricingLabel && (
+        <View style={styles.repricingBanner} accessibilityLiveRegion="polite">
+          <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+          <Text style={styles.repricingText}>{repricingLabel}</Text>
+        </View>
+      )}
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardDismissMode="on-drag">
@@ -216,7 +249,7 @@ export default function EditListingScreen() {
                   testID="edit-listing-apply-buyer-trust"
                   accessibilityLabel="Apply buyer trust suggestion"
                   disabled={improving}
-                  onPress={() => runImprovement("improve_buyer_trust")}
+                  onPress={() => runImprovement("improve_buyer_trust", "", "suggestion")}
                 >
                   <Text style={styles.hintActionText} accessibilityLiveRegion="polite">
                     {improving ? "Applying..." : "Apply suggestion"}
@@ -266,7 +299,7 @@ export default function EditListingScreen() {
                   testID="edit-listing-apply-description-details"
                   accessibilityLabel="Apply description details suggestion"
                   disabled={improving}
-                  onPress={() => runImprovement("add_condition_details")}
+                  onPress={() => runImprovement("add_condition_details", "", "suggestion")}
                 >
                   <Text style={styles.hintActionText} accessibilityLiveRegion="polite">
                     {improving ? "Applying..." : "Apply suggestion"}
@@ -275,6 +308,43 @@ export default function EditListingScreen() {
               </View>
             )}
           </View>
+
+          {insightsEnabled && (
+            <>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionLine} />
+                <Text style={styles.sectionTitle}>IMPROVE WITH AI</Text>
+              </View>
+              {improveSummary && (
+                <Text style={styles.improveSummary} accessibilityLiveRegion="polite">
+                  {improveSummary}
+                </Text>
+              )}
+              <View style={styles.improveChips}>
+                {IMPROVE_ACTIONS.map(([action, label]) => {
+                  const busy = improvingAction === action;
+                  return (
+                    <Pressable
+                      key={action}
+                      style={[styles.improveChip, improving && !busy && styles.improveChipDisabled]}
+                      onPress={() => runImprovement(action)}
+                      disabled={improving}
+                      accessibilityRole="button"
+                      accessibilityLabel={label}
+                      accessibilityState={{ disabled: improving, busy }}
+                    >
+                      <Ionicons
+                        name={busy ? "refresh" : "sparkles-outline"}
+                        size={14}
+                        color={theme.colors.textPrimary}
+                      />
+                      <Text style={styles.improveChipText}>{busy ? "Working…" : label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          )}
 
           {/* SECTION: LOGISTICS */}
           <View style={styles.sectionHeader}>
@@ -324,7 +394,7 @@ export default function EditListingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -343,6 +413,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     width: 100,
+  },
+  headerButtonDisabled: {
+    opacity: 0.4,
   },
   headerButtonText: {
     fontSize: 15,
@@ -363,6 +436,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: theme.colors.textPrimary,
+  },
+  saveTextBusy: {
+    color: theme.colors.textTertiary,
+  },
+  repricingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.borderSubtle,
+    backgroundColor: theme.colors.surface,
+  },
+  repricingText: {
+    ...theme.typography.caption,
+    fontSize: 13,
+    color: theme.colors.textSecondary,
   },
   scrollContent: {
     padding: theme.spacing.screenPadding,
@@ -549,6 +640,36 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: theme.colors.textPrimary,
   },
+  improveSummary: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: theme.colors.textSecondary,
+    marginBottom: 12,
+  },
+  improveChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 8,
+  },
+  improveChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surface,
+  },
+  improveChipDisabled: {
+    opacity: 0.4,
+  },
+  improveChipText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: theme.colors.textPrimary,
+  },
   hintCard: {
     marginTop: 8,
     backgroundColor: theme.colors.surface,
@@ -572,4 +693,4 @@ const styles = StyleSheet.create({
     color: theme.colors.textPrimary,
     marginLeft: 24, // align under text
   },
-});
+}));

@@ -6,7 +6,7 @@ in Render. The backend must use PostgreSQL, Firebase Admin credentials, and
 Supabase Storage for a durable deployment.
 
 The tracked Blueprint defaults to `ALLOW_SERVER_AI_KEY_FALLBACK=false`, so
-users must provide Gemini or Groq keys from the mobile app. Render prompts each
+users must provide Gemini, Groq, or Claude keys from the mobile app. Render prompts each
 deployer for the `sync: false` database, Firebase, Supabase, and optional AI
 secrets; their values are never stored in this repository.
 

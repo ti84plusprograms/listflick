@@ -91,7 +91,9 @@ tags:
 
 # 3. Create a deterministic listing using the seeded fixture photo
 - tapOn:
-    id: home-choose-from-library
+    id: home-new-listing
+- tapOn:
+    id: camera-open-library
 - runFlow: helpers/pick-first-photo.yaml
 - assertVisible:
     id: selected-photo-count

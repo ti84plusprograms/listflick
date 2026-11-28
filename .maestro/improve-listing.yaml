@@ -109,7 +109,9 @@ tags:
 # Create the draft through the same picker, analysis, and Processing UI used by
 # a real user. The E2E backend supplies deterministic listing and improvement data.
 - tapOn:
-    id: home-choose-from-library
+    id: home-new-listing
+- tapOn:
+    id: camera-open-library
 - runFlow: helpers/pick-first-photo.yaml
 - assertVisible:
     id: selected-photo-count

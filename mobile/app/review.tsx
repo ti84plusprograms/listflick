@@ -16,8 +16,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { ImageCarousel } from "../components/listing/ImageCarousel";
+import { MarketplaceHint } from "../components/listing/MarketplaceHint";
+import { ReadyChecklist } from "../components/listing/ReadyChecklist";
+import { ListingQuestionsCard } from "../components/listing/ListingQuestionsCard";
 
 import {
+  ApiError,
+  answerListingQuestions,
   discardPendingItem,
   getHealth,
   getItem,
@@ -30,9 +35,32 @@ import {
   clearPendingAnalysisOperationForItem,
   getDraftListingEdits,
   getListing,
+  getUserProfile,
+  saveDraftListingEdits,
   saveListing,
 } from "../services/storage";
-import { theme } from "../constants/theme";
+import { useAuth } from "../state/AuthContext";
+import { applyUserProfileToDescription } from "../utils/descriptionFormatter";
+import { userProfileDefaultsFromAuth } from "../utils/userProfile";
+import {
+  showAIKeyRequiredPrompt,
+  showAIProviderCredentialInvalidPrompt,
+  showAIProviderRequiredPrompt,
+} from "../utils/aiCredentialPrompt";
+import { providerDisplayName } from "../utils/aiSettingsState";
+import {
+  activePriceAfterAnswers,
+  buildListingAnswers,
+  draftAfterListingUpdate,
+  listingQuestionsFromListing,
+  setQuestionText,
+  toggleQuestionOption,
+  updateBusyLabel,
+  workspaceToGeneratedListing,
+  type ListingQuestion,
+  type QuestionDrafts,
+} from "../utils/listingQuestions";
+import { theme, themedStyles } from "../constants/theme";
 import {
   applyDraftListingEdits,
   listingWorkspaceToParams,
@@ -55,7 +83,12 @@ import {
   snapshotFromListing,
   snapshotsEqual,
 } from "../utils/inventorySyncState";
-import { saveListingImagesToLibrary } from "../services/imageDownload";
+import { saveListingMediaToLibrary } from "../services/imageDownload";
+import {
+  listingVideoFromItem,
+  manageMediaLabel,
+  saveMediaLabel,
+} from "../utils/listingVideo";
 import { invalidateAuthenticatedImageUri } from "../services/imageRetrieval";
 import { formatImageDownloadResult } from "../utils/imageDownloadResult";
 import type { NotionSyncStatus } from "../types/listing";
@@ -73,10 +106,23 @@ export default function ReviewScreen() {
   const paramsString = JSON.stringify(params);
   const initialListing = useMemo(() => parseListingWorkspaceParams(JSON.parse(paramsString)), [paramsString]);
   const insets = useSafeAreaInsets();
-  const { hydrateWorkspace } = useListingWorkspaceActions();
+  const { hydrateWorkspace, updateDetails, updatePricing, updateInsights, updatePhotos } = useListingWorkspaceActions();
   const listing = useListingWorkspaceSnapshot();
+  const { user } = useAuth();
+  const authProfileDefaults = useMemo(
+    () => userProfileDefaultsFromAuth(user),
+    [user?.displayName, user?.email]
+  );
   const identityRef = useRef(listing);
   identityRef.current = listing;
+  // Answers can take a while; a late result must not land in a listing the seller has since opened.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const [saving, setSaving] = useState(false);
   const [savingPhotos, setSavingPhotos] = useState(false);
@@ -90,6 +136,9 @@ export default function ReviewScreen() {
   const [notionSyncStatus, setNotionSyncStatus] = useState<NotionSyncStatus | null>(null);
   const [notionCapability, setNotionCapability] = useState<NotionCapability | null>(null);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const [questions, setQuestions] = useState<ListingQuestion[]>([]);
+  const [questionDrafts, setQuestionDrafts] = useState<QuestionDrafts>({});
+  const [questionsBusyLabel, setQuestionsBusyLabel] = useState<string | null>(null);
 
   const savedSnapshotRef = useRef<ListingSnapshot | null>(
     params.lastSyncedSnapshot ? JSON.parse(params.lastSyncedSnapshot) : null
@@ -143,6 +192,14 @@ export default function ReviewScreen() {
           const item = await getItem(itemId);
           if (!active) return;
           setNotionSyncStatus(item.notion_sync);
+          // The backend is authoritative for the video; keep a local copy while it is the same video.
+          const backendVideo = listingVideoFromItem(item.video);
+          const currentVideo = identityRef.current.video;
+          if (!(currentVideo && backendVideo && currentVideo.videoId === backendVideo.videoId)) {
+            updatePhotos({ video: backendVideo });
+          }
+          // Open questions live on the backend listing so they survive reloads.
+          setQuestions(listingQuestionsFromListing(item.listing));
           if (item.status === "saved") {
             setInventoryStatus("saved");
             savedSnapshotRef.current ??= snapshotFromListing(loadedListing);
@@ -170,7 +227,7 @@ export default function ReviewScreen() {
       return () => {
         active = false;
       };
-    }, [hydrateWorkspace, initialListing])
+    }, [hydrateWorkspace, initialListing, updatePhotos])
   );
 
   // Dirty detection: compare current workspace to last saved snapshot
@@ -263,7 +320,7 @@ export default function ReviewScreen() {
         !showNotionUi
           ? "Listing saved to your inventory."
           : result.notion_sync.status === "synced"
-          ? "Listing saved to your inventory and synced to Notion."
+          ? ["Listing saved to your inventory and synced to Notion.", ...(result.notion_sync.warnings ?? [])].join(" ")
           : `Listing saved to your inventory. ${notionSyncPresentation(result.notion_sync).message}`,
         [
           {
@@ -355,6 +412,87 @@ export default function ReviewScreen() {
     }
   };
 
+  const questionAnswers = useMemo(
+    () => buildListingAnswers(questions, questionDrafts),
+    [questions, questionDrafts]
+  );
+
+  const handleSubmitAnswers = async () => {
+    if (questionsBusyLabel || !listing.itemId || questionAnswers.length === 0) return;
+    const startItemId = listing.itemId;
+    setQuestionsBusyLabel(updateBusyLabel(questionAnswers));
+    try {
+      const result = await answerListingQuestions(startItemId, {
+        answers: questionAnswers,
+        listing: workspaceToGeneratedListing(listing),
+        active_price: listing.activePrice,
+        active_price_source: listing.activePriceSource ?? null,
+      });
+      const profile = await getUserProfile(user?.uid, authProfileDefaults);
+      const description = applyUserProfileToDescription(result.listing.description, profile);
+      const nextPrice = activePriceAfterAnswers(result, {
+        activePrice: listing.activePrice,
+        activePriceSource: listing.activePriceSource,
+      });
+      // The draft is keyed by this listing's id, so it is always safe to save.
+      const draftId = startItemId;
+      await saveDraftListingEdits(
+        draftId,
+        draftAfterListingUpdate(await getDraftListingEdits(draftId), {
+          title: result.listing.title,
+          description,
+          category: result.listing.marketplace_category || listing.category,
+          ...nextPrice,
+          priceSuggestion: result.listing.price_suggestion,
+        })
+      );
+      if (!mountedRef.current || identityRef.current.itemId !== startItemId) return;
+      updateDetails({
+        title: result.listing.title,
+        description,
+        category: result.listing.marketplace_category || listing.category,
+      });
+      updatePricing({ ...nextPrice, priceSuggestion: result.listing.price_suggestion });
+      updateInsights({
+        listingQuality: result.listing.listing_quality,
+        missingChecklist: result.missing_checklist ?? [],
+      });
+      setQuestions(listingQuestionsFromListing(result.listing));
+      setQuestionDrafts({});
+    } catch (e) {
+      if (!mountedRef.current) return;
+      if (e instanceof ApiError && e.code === "AI_PROVIDER_SELECTION_REQUIRED") {
+        showAIProviderRequiredPrompt();
+        return;
+      }
+      if (e instanceof ApiError && e.code === "AI_CREDENTIAL_REQUIRED" && e.provider) {
+        showAIKeyRequiredPrompt(e.provider, `Add your ${providerDisplayName(e.provider)} API key to update this listing.`);
+        return;
+      }
+      if (e instanceof ApiError && e.code === "AI_PROVIDER_CREDENTIAL_INVALID" && e.provider) {
+        showAIProviderCredentialInvalidPrompt(e.provider);
+        return;
+      }
+      const message = e instanceof ApiError || e instanceof Error ? e.message : "Could not update listing";
+      Alert.alert("Update Listing", message);
+    } finally {
+      if (mountedRef.current) setQuestionsBusyLabel(null);
+    }
+  };
+
+  const handleSkipQuestions = () => {
+    if (questionsBusyLabel) return;
+    setQuestions([]);
+    setQuestionDrafts({});
+    if (!listing.itemId) return;
+    // Clearing needs no AI key; if it fails the questions just come back next time.
+    answerListingQuestions(listing.itemId, {
+      dismiss: true,
+      active_price: listing.activePrice,
+      active_price_source: listing.activePriceSource ?? null,
+    }).catch(() => null);
+  };
+
   const handleCopyText = async () => {
     const text = `${listing.title}\n\n${listing.description}`;
     await Clipboard.setStringAsync(text);
@@ -372,7 +510,7 @@ export default function ReviewScreen() {
     setShowOverflow(false);
   };
 
-  const runSavePhotos = async (urisToSave: string[]) => {
+  const runSavePhotos = async (urisToSave: string[], videoUri?: string | null) => {
     if (savingPhotos) return;
     setSavingPhotos(true);
     try {
@@ -381,15 +519,35 @@ export default function ReviewScreen() {
         return;
       }
       const MediaLibrary = await import("expo-media-library/legacy");
-      const { status } = await MediaLibrary.requestPermissionsAsync(true, ["photo"]);
+      const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync(
+        true,
+        videoUri ? ["photo", "video"] : ["photo"],
+      );
       if (status !== "granted") {
-        Alert.alert("Permission needed", "We need access to your photos to save them.");
+        Alert.alert(
+          "Permission needed",
+          canAskAgain === false
+            ? "Allow ListFlick to add to Photos in Settings to save the photos and video."
+            : "We need access to your photos to save them.",
+          canAskAgain === false
+            ? [
+              { text: "Cancel", style: "cancel" },
+              { text: "Open Settings", onPress: () => void Linking.openSettings() },
+            ]
+            : undefined,
+        );
         return;
       }
-      const result = await saveListingImagesToLibrary(urisToSave);
+      // Photos in listing order (cover first), then the video.
+      const result = await saveListingMediaToLibrary(urisToSave, videoUri);
+      const allUris = videoUri ? [...urisToSave, videoUri] : urisToSave;
       const message = formatImageDownloadResult(result);
       if (result.failures.length > 0) {
-        const failedUris = result.failures.map((f) => urisToSave[f.index]).filter(Boolean);
+        const failedPhotoUris = result.failures
+          .filter((f) => f.index < urisToSave.length)
+          .map((f) => urisToSave[f.index])
+          .filter(Boolean);
+        const videoFailed = Boolean(videoUri) && result.failures.some((f) => f.index === urisToSave.length);
         Alert.alert(message.title, message.message, [
           { text: "Cancel", style: "cancel" },
           {
@@ -397,10 +555,10 @@ export default function ReviewScreen() {
             onPress: () => {
               for (const failure of result.failures) {
                 if (failure.category === "authentication" || failure.category === "download") {
-                  invalidateAuthenticatedImageUri(urisToSave[failure.index]);
+                  invalidateAuthenticatedImageUri(allUris[failure.index]);
                 }
               }
-              void runSavePhotos(failedUris);
+              void runSavePhotos(failedPhotoUris, videoFailed ? videoUri : null);
             },
           },
         ]);
@@ -418,9 +576,13 @@ export default function ReviewScreen() {
     }
   };
 
+  const videoSaveUri = listing.video
+    ? (listing.video.uri.startsWith("/") ? imageUrl(listing.video.uri) : listing.video.uri)
+    : null;
+
   const handleSavePhotos = () => {
     const targetUris = localImageUris.map((uri, index) => resolveImageUri(uri, listing.itemId, index) ?? uri);
-    void runSavePhotos(targetUris);
+    void runSavePhotos(targetUris, videoSaveUri);
   };
 
   const openNotionPage = async () => {
@@ -496,7 +658,7 @@ export default function ReviewScreen() {
           <Text style={styles.headerButtonText}>Back</Text>
         </Pressable>
         <Text style={styles.headerTitle} accessibilityLiveRegion="polite">
-          {savingPhotos ? "Saving Photos..." : "Listing Preview"}
+          {savingPhotos ? saveMediaLabel(Boolean(listing.video), true) : "Listing Preview"}
         </Text>
         <Pressable
           onPress={() => setShowOverflow(!showOverflow)}
@@ -511,7 +673,7 @@ export default function ReviewScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Photo Carousel */}
-        <ImageCarousel imageUris={localImageUris} />
+        <ImageCarousel imageUris={localImageUris} video={listing.video} />
 
         <Pressable
           style={styles.managePhotosBtn}
@@ -520,11 +682,22 @@ export default function ReviewScreen() {
           accessibilityLabel="Manage Photos"
         >
           <Ionicons name="images-outline" size={18} color={theme.colors.textPrimary} />
-          <Text style={styles.managePhotosText}>Manage Photos</Text>
+          <Text style={styles.managePhotosText}>{manageMediaLabel(Boolean(listing.video))}</Text>
         </Pressable>
 
         {/* Core Listing Details */}
         <View style={styles.detailsContainer}>
+          <ListingQuestionsCard
+            questions={questions}
+            drafts={questionDrafts}
+            busyLabel={questionsBusyLabel}
+            canSubmit={questionAnswers.length > 0}
+            onToggleOption={(id, option) => setQuestionDrafts((current) => toggleQuestionOption(current, id, option))}
+            onChangeText={(id, text) => setQuestionDrafts((current) => setQuestionText(current, id, text))}
+            onSubmit={handleSubmitAnswers}
+            onSkip={handleSkipQuestions}
+          />
+
           <Text style={styles.titleText} testID="review-listing-title">
             {listing.title || "Untitled Listing"}
           </Text>
@@ -563,6 +736,10 @@ export default function ReviewScreen() {
             )}
           </View>
 
+          <MarketplaceHint photoCount={localImageUris.length} video={listing.video} />
+
+          <ReadyChecklist openQuestionCount={questions.length} />
+
           {notionPresentation && inventoryStatus !== "unsaved" && (
             <View style={styles.notionStatusCard}>
               <View style={styles.notionStatusHeader}>
@@ -570,6 +747,12 @@ export default function ReviewScreen() {
                 <Text style={styles.notionStatusTitle}>{notionPresentation.title}</Text>
               </View>
               <Text style={styles.notionStatusMessage}>{notionPresentation.message}</Text>
+              {notionSyncStatus?.status === "synced" && (notionSyncStatus.warnings ?? []).map((warning) => (
+                <View key={warning} style={styles.notionWarningRow}>
+                  <Ionicons name="alert-circle-outline" size={14} color={theme.colors.warning} />
+                  <Text style={styles.notionWarningText}>{warning}</Text>
+                </View>
+              ))}
               {notionPresentation.canRetry && (
                 <Pressable onPress={handleRetryNotionSync} disabled={saving}>
                   <Text style={styles.notionStatusAction}>
@@ -622,7 +805,7 @@ export default function ReviewScreen() {
                 color={savingPhotos ? theme.colors.textSecondary : theme.colors.textPrimary}
               />
               <Text style={[styles.overflowItemText, savingPhotos && { color: theme.colors.textSecondary }]}>
-                {savingPhotos ? "Saving Photos..." : "Save Photos to Device"}
+                {saveMediaLabel(Boolean(listing.video), savingPhotos)}
               </Text>
             </Pressable>
 
@@ -681,7 +864,7 @@ export default function ReviewScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -810,6 +993,18 @@ const styles = StyleSheet.create({
     ...theme.typography.body,
     color: theme.colors.textSecondary,
   },
+  notionWarningRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 6,
+  },
+  notionWarningText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: theme.colors.textSecondary,
+  },
   notionStatusAction: {
     fontSize: 14,
     fontWeight: "600",
@@ -904,4 +1099,4 @@ const styles = StyleSheet.create({
   overflowItemTextDisabled: {
     color: theme.colors.textTertiary,
   },
-});
+}));

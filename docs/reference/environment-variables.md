@@ -7,13 +7,16 @@
 | `APP_ENV` | runtime label; must be exactly `e2e` before deterministic fixture mode can start |
 | `E2E_MODE` | local-only deterministic AI and simulated-auth backend switch; defaults to `false` and fails closed unless all E2E isolation checks pass |
 | `E2E_REQUIRE_BYOK_UI` | E2E-only health variant that reports no server fallback or configured provider key so Maestro can exercise first-time provider UX |
-| `AI_PROVIDER` | backend default (`gemini` or `groq`); also the mobile effective provider when fallback is enabled and the user has no saved preference |
-| `ALLOW_SERVER_AI_KEY_FALLBACK` | allow server Gemini/Groq keys without a request BYOK key; the code, example, and Render blueprint defaults are `false`; when explicitly enabled, it also allows `AI_PROVIDER` to resolve an unset mobile preference |
+| `AI_PROVIDER` | backend default (`gemini`, `groq`, or `claude`); also the mobile effective provider when fallback is enabled and the user has no saved preference |
+| `ALLOW_SERVER_AI_KEY_FALLBACK` | allow server Gemini/Groq/Claude keys without a request BYOK key; the code, example, and Render blueprint defaults are `false`; when explicitly enabled, it also allows `AI_PROVIDER` to resolve an unset mobile preference |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini credentials/model |
 | `GROQ_API_KEY` | Groq credential; keep server-side and never commit a real key |
 | `GROQ_VISION_MODEL` | Supported Groq vision model ID; must be `qwen/qwen3.8-27b` |
 | `GROQ_VISION_REASONING_EFFORT` | Groq vision reasoning mode; `none` disables Qwen reasoning, `default` enables it |
 | `GROQ_TEXT_MODEL` | Groq text model ID; defaults to `openai/gpt-oss-20b` |
+| `ANTHROPIC_API_KEY` | Claude (Anthropic) credential for server fallback; keep server-side and never commit a real key |
+| `CLAUDE_VISION_MODEL` | Claude model used for photo analysis; defaults to `claude-sonnet-5-5` |
+| `CLAUDE_TEXT_MODEL` | Claude model used for listing writing and pricing; defaults to `claude-sonnet-5-5` |
 | `DATABASE_URL` | PostgreSQL connection used by the asyncpg database layer |
 | `ANALYSIS_LEASE_SECONDS` | request-inline analysis lease duration; defaults to `300` |
 | `ANALYSIS_MAX_ATTEMPTS` | maximum claims before terminal failure; defaults to `3` |
@@ -21,7 +24,8 @@
 | `UPLOAD_DIR` | filesystem-storage root used when Supabase is not configured; defaults to `./uploads` |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | server-only Supabase Storage credential |
-| `SUPABASE_STORAGE_BUCKET` | private image bucket, normally `images` |
+| `SUPABASE_STORAGE_BUCKET` | private image bucket, normally `images` (also holds listing videos) |
+| `MAX_VIDEO_UPLOAD_MB` | largest listing video the API accepts; defaults to `100` |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Firebase Admin service-account JSON secret |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | local Firebase service-account path |
 | `CORS_ORIGINS` | comma-separated credentialed browser origins; `*` is rejected |
@@ -36,7 +40,7 @@
 For public deployments, use BYOK: users enter provider keys in the mobile app,
 where they are stored in Expo SecureStore. The key is sent only on provider-
 execution requests and is not persisted by ListFlick. Self-hosters may set
-`GEMINI_API_KEY` and/or `GROQ_API_KEY` and explicitly enable
+`GEMINI_API_KEY`, `GROQ_API_KEY` and/or `ANTHROPIC_API_KEY` and explicitly enable
 `ALLOW_SERVER_AI_KEY_FALLBACK=true`; the deployment owner then assumes provider
 usage and cost responsibility. With fallback enabled, a saved mobile provider
 preference takes precedence. If no preference is saved, the mobile client uses
@@ -44,7 +48,7 @@ preference takes precedence. If no preference is saved, the mobile client uses
 means there is no saved override; it does not mean AI is unavailable.
 
 A nonblank device key is reported as **Saved on this device**. Saving does not
-contact Gemini or Groq, so it does not claim the key is valid. The selected
+contact Gemini, Groq, or Claude, so it does not claim the key is valid. The selected
 provider validates the key on the next AI request; a rejected key returns
 `AI_PROVIDER_CREDENTIAL_INVALID` and the app offers **Replace API Key**.
 

@@ -1,4 +1,5 @@
-import { CameraType, CameraView, useCameraPermissions } from "expo-camera";
+import { CameraType, CameraView, useCameraPermissions, useMicrophonePermissions } from "expo-camera";
+import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import * as Sharing from "expo-sharing";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
@@ -18,13 +19,23 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { getAuthUser } from "../services/authSession";
-import { theme } from "../constants/theme";
+import { theme, themedStyles } from "../constants/theme";
 import { CameraPreview } from "../components/camera/CameraPreview";
 import { PhotoManager } from "../components/camera/PhotoManager";
-import { getHealth } from "../services/api";
-import { hasProviderApiKey } from "../services/aiCredentials";
+import { ListingVideoPlayer } from "../components/media/ListingVideoPlayer";
+import { extractVideoFrames, videoPosterUri } from "../services/videoFrames";
+import type { ListingVideo } from "../types/listing";
 import {
-  getPendingAnalysisOperation,
+  MAX_VIDEO_BYTES,
+  MAX_VIDEO_SECONDS,
+  VIDEO_TOO_LARGE_MESSAGE,
+  addVideoNotice,
+  isVideoAsset,
+  videoMimeType,
+} from "../utils/listingVideo";
+import { getHealth } from "../services/api";
+import { hasProviderApiKey, isAIProvider } from "../services/aiCredentials";
+import {
   getEffectiveAIProvider,
   getSelectedAIProvider,
   savePendingAnalysisOperation,
@@ -33,9 +44,23 @@ import { createPendingAnalysisOperation } from "../utils/pendingAnalysis";
 import {
   deletePendingAnalysisImages,
   persistPendingAnalysisImages,
+  persistPendingAnalysisVideo,
 } from "../utils/pendingAnalysisFiles";
 import { showAIKeyRequiredPrompt, showAIProviderRequiredPrompt } from "../utils/aiCredentialPrompt";
-import { isServerAIKeyFallbackAvailable } from "../utils/aiProviderAvailability";
+import { isServerAIKeyFallbackAvailable, providerServerKeyConfigured as serverKeyConfiguredFor } from "../utils/aiProviderAvailability";
+import { providerDisplayName } from "../utils/aiSettingsState";
+
+// Leave room under the upload limit for the container and the frames sent alongside.
+const MAX_RECORDING_BYTES = MAX_VIDEO_BYTES - 5 * 1024 * 1024;
+
+function recordedFileSize(uri: string): number | undefined {
+  try {
+    const size = new File(uri).size;
+    return typeof size === "number" && size > 0 ? size : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export default function CameraScreen() {
   const params = useLocalSearchParams<{ openPicker?: string }>();
@@ -52,6 +77,19 @@ export default function CameraScreen() {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [startingProcessing, setStartingProcessing] = useState(false);
   const aiPreflightPassed = useRef(false);
+  // One video per listing (Marketplace's separate "Add video" slot).
+  const [video, setVideo] = useState<ListingVideo | null>(null);
+  const [captureMode, setCaptureMode] = useState<"photo" | "video">("photo");
+  const [recordingSeconds, setRecordingSeconds] = useState<number | null>(null);
+  const [previewVideo, setPreviewVideo] = useState(false);
+  const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
+  const recordingStartedAt = useRef<number | null>(null);
+  // Set synchronously on the first tap so a second tap during the AI preflight can't start a
+  // second recording that the UI then loses track of.
+  const recordingBusy = useRef(false);
+  const videoRef = useRef<ListingVideo | null>(null);
+  videoRef.current = video;
+  const isRecording = recordingSeconds !== null;
 
   const insets = useSafeAreaInsets();
 
@@ -76,15 +114,9 @@ export default function CameraScreen() {
     const health = await getHealth().catch(() => null);
     const savedProvider = await getSelectedAIProvider();
     const provider = await getEffectiveAIProvider(health);
-    const backendProvider = health?.ai_provider === "gemini" || health?.ai_provider === "groq"
-      ? health.ai_provider
-      : "none";
+    const backendProvider = isAIProvider(health?.ai_provider) ? health.ai_provider : "none";
     const fallbackEnabled = health?.allow_server_ai_key_fallback === true;
-    const providerServerKeyConfigured = provider === "gemini"
-      ? Boolean(health?.gemini_configured)
-      : provider === "groq"
-        ? Boolean(health?.groq_configured)
-        : false;
+    const providerServerKeyConfigured = provider ? serverKeyConfiguredFor(health, provider) : false;
     const fallbackAvailable = provider
       ? isServerAIKeyFallbackAvailable(health, provider)
       : false;
@@ -103,41 +135,33 @@ export default function CameraScreen() {
       return true;
     }
 
-    showAIKeyRequiredPrompt(provider, `Add your ${provider === "gemini" ? "Gemini" : "Groq"} API key before taking listing photos.`);
+    showAIKeyRequiredPrompt(provider, `Add your ${providerDisplayName(provider)} API key before taking listing photos.`);
     return false;
   }, []);
 
-  const goToProcessing = async (uris: string[]) => {
+  const goToProcessing = async (uris: string[], listingVideo: ListingVideo | null = video) => {
     if (startingProcessing) return;
     if (!(await ensureAIProviderReady())) return;
     setStartingProcessing(true);
     let operationId: string | undefined;
     try {
-      const pending = await getPendingAnalysisOperation();
-      if (pending) {
-        Alert.alert(
-          "Listing already in progress",
-          "Resume or discard the current listing before starting another.",
-          [
-            { text: "Keep Editing", style: "cancel" },
-            {
-              text: "Resume",
-              onPress: () => router.replace({
-                pathname: "/processing",
-                params: { operationId: pending.operationId },
-              }),
-            },
-          ]
-        );
-        setStartingProcessing(false);
-        return;
-      }
       const operation = createPendingAnalysisOperation(uris);
       operationId = operation.operationId;
       const durableImageUris = await persistPendingAnalysisImages(operation.operationId, uris);
+      // Candidate frames are extracted on the phone; the backend keeps the best ones.
+      const durableVideo = listingVideo
+        ? await persistPendingAnalysisVideo(operation.operationId, {
+          uri: listingVideo.uri,
+          durationSeconds: listingVideo.durationSeconds,
+          mimeType: listingVideo.mimeType,
+          sizeBytes: listingVideo.sizeBytes,
+          frames: await extractVideoFrames(listingVideo.uri, listingVideo.durationSeconds),
+        })
+        : undefined;
       await savePendingAnalysisOperation({
         ...operation,
         imageUris: durableImageUris,
+        ...(durableVideo ? { video: durableVideo } : {}),
       });
       router.push({
         pathname: "/processing",
@@ -164,18 +188,108 @@ export default function CameraScreen() {
     }
   };
 
+  const attachVideo = useCallback(async (next: ListingVideo, pickedCount = 1) => {
+    if (next.sizeBytes && next.sizeBytes > MAX_VIDEO_BYTES) {
+      Alert.alert("Video too large", VIDEO_TOO_LARGE_MESSAGE);
+      return;
+    }
+    const posterUri = await videoPosterUri(next.uri, next.durationSeconds);
+    const notice = addVideoNotice(videoRef.current, pickedCount);
+    setVideo({ ...next, posterUri: posterUri ?? undefined });
+    if (notice) Alert.alert("One video per listing", notice);
+  }, []);
+
+  const startRecording = async () => {
+    if (!cameraRef.current || recordingSeconds !== null || recordingBusy.current) return;
+    recordingBusy.current = true;
+    try {
+      if (!(await ensureAIProviderReady()) || !cameraRef.current) return;
+      recordingStartedAt.current = Date.now();
+      setRecordingSeconds(0);
+      try {
+        const recorded = await cameraRef.current.recordAsync({
+          maxDuration: MAX_VIDEO_SECONDS,
+          // Stop before the upload limit; the camera also records at 720p to keep clips small.
+          maxFileSize: MAX_RECORDING_BYTES,
+        });
+        const startedAt = recordingStartedAt.current ?? Date.now();
+        const durationSeconds = Math.max(1, (Date.now() - startedAt) / 1000);
+        if (recorded?.uri) {
+          await attachVideo({
+            uri: recorded.uri,
+            durationSeconds: Math.min(durationSeconds, MAX_VIDEO_SECONDS),
+            mimeType: videoMimeType(recorded.uri),
+            sizeBytes: recordedFileSize(recorded.uri),
+          });
+        }
+      } catch {
+        Alert.alert("Error", "Could not record the video. Please try again.");
+      } finally {
+        recordingStartedAt.current = null;
+        setRecordingSeconds(null);
+      }
+    } finally {
+      recordingBusy.current = false;
+    }
+  };
+
+  const stopRecording = () => {
+    cameraRef.current?.stopRecording();
+  };
+
+  const selectCaptureMode = async (mode: "photo" | "video") => {
+    setCaptureMode(mode);
+    // Sound is optional: ask once when switching to video; without it the clip is muted.
+    if (mode === "video" && !microphonePermission?.granted && microphonePermission?.canAskAgain !== false) {
+      await requestMicrophonePermission();
+    }
+  };
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const timer = setInterval(() => {
+      const startedAt = recordingStartedAt.current;
+      if (startedAt) setRecordingSeconds((Date.now() - startedAt) / 1000);
+    }, 500);
+    return () => clearInterval(timer);
+  }, [isRecording]);
+
+  useFocusEffect(
+    useCallback(() => () => {
+      // Leaving the screen ends a recording instead of leaving the camera running.
+      if (recordingStartedAt.current) cameraRef.current?.stopRecording();
+    }, []),
+  );
+
   const pickFromGallery = useCallback(async () => {
     if (!(await ensureAIProviderReady())) return;
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+      mediaTypes: ["images", "videos"],
       allowsMultipleSelection: true,
-      selectionLimit: Math.max(1, 8 - imageUris.length),
+      selectionLimit: Math.max(1, 8 - imageUris.length) + 1,
       quality: 0.8,
+      videoMaxDuration: MAX_VIDEO_SECONDS,
     });
     if (!result.canceled && result.assets[0]?.uri) {
-      setImageUris((current) => [...current, ...result.assets.map((asset) => asset.uri)].slice(0, 8));
+      const videos = result.assets.filter((asset) => isVideoAsset(asset));
+      const photos = result.assets.filter((asset) => !isVideoAsset(asset));
+      if (photos.length > 0) {
+        setImageUris((current) => [...current, ...photos.map((asset) => asset.uri)].slice(0, 8));
+      }
+      const picked = videos[0];
+      if (picked) {
+        await attachVideo(
+          {
+            uri: picked.uri,
+            durationSeconds: (picked.duration ?? 0) / 1000,
+            mimeType: videoMimeType(picked.uri, picked.mimeType),
+            sizeBytes: picked.fileSize ?? undefined,
+          },
+          videos.length,
+        );
+      }
     }
-  }, [ensureAIProviderReady, imageUris.length]);
+  }, [attachVideo, ensureAIProviderReady, imageUris.length]);
 
   useEffect(() => {
     if (params.openPicker !== "true" || openedPickerFromParam.current) return;
@@ -185,7 +299,9 @@ export default function CameraScreen() {
 
   /* ── Permission states ─────────────────────────────────── */
 
-  if (!permission && imageUris.length === 0) {
+  const hasMedia = imageUris.length > 0 || video !== null;
+
+  if (!permission && !hasMedia) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={theme.colors.textPrimary} />
@@ -193,7 +309,7 @@ export default function CameraScreen() {
     );
   }
 
-  if (!permission?.granted && imageUris.length === 0) {
+  if (!permission?.granted && !hasMedia) {
     return (
       <View style={styles.centered}>
         <Ionicons name="camera-outline" size={48} color={theme.colors.textTertiary} style={{ marginBottom: 16 }} />
@@ -295,8 +411,8 @@ export default function CameraScreen() {
             onPress={() => void goToProcessing(imageUris)}
             testID="camera-next"
             accessibilityLabel="Analyze selected photos"
-            style={[styles.topBarButton, { marginLeft: 12 }, (imageUris.length === 0 || startingProcessing) && { opacity: 0.5 }]}
-            disabled={imageUris.length === 0 || startingProcessing}
+            style={[styles.topBarButton, { marginLeft: 12 }, (!hasMedia || startingProcessing || recordingSeconds !== null) && { opacity: 0.5 }]}
+            disabled={!hasMedia || startingProcessing || recordingSeconds !== null}
           >
             {startingProcessing ? (
               <ActivityIndicator size="small" color={theme.colors.textPrimary} />
@@ -318,6 +434,9 @@ export default function CameraScreen() {
         flashEnabled={flashEnabled}
         scanningMode={scanningMode}
         scanAnim={scanAnim}
+        mode={captureMode === "video" ? "video" : "picture"}
+        mute={!microphonePermission?.granted}
+        recordingSeconds={recordingSeconds}
       />
 
       {/* AI hint banner
@@ -332,7 +451,28 @@ export default function CameraScreen() {
         onRemoveImage={removeImage}
         onAddImage={pickFromGallery}
         onPreviewImage={setPreviewImage}
+        video={video}
+        onRemoveVideo={() => setVideo(null)}
+        onPreviewVideo={() => setPreviewVideo(true)}
       />
+
+      {/* Photo / Video switch */}
+      <View style={styles.modeSwitch} accessibilityRole="tablist">
+        {(["photo", "video"] as const).map((mode) => (
+          <Pressable
+            key={mode}
+            onPress={() => void selectCaptureMode(mode)}
+            disabled={recordingSeconds !== null}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: captureMode === mode }}
+            style={[styles.modeOption, captureMode === mode && styles.modeOptionActive]}
+          >
+            <Text style={[styles.modeText, captureMode === mode && styles.modeTextActive]}>
+              {mode === "photo" ? "Photo" : "Video"}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
       {/* Bottom controls */}
       <View style={styles.controls}>
@@ -351,27 +491,48 @@ export default function CameraScreen() {
 
         {/* Capture Area */}
         <View style={{ alignItems: "center", justifyContent: "center", zIndex: 10 }}>
-          <Pressable
-            style={[styles.captureButton, (capturing || imageUris.length >= 8) && styles.captureDisabled]}
-            onPress={takePhoto}
-            disabled={capturing || imageUris.length >= 8}
-          >
-            {capturing ? (
-              <ActivityIndicator color={theme.colors.textPrimary} />
-            ) : (
-              <View style={styles.captureInner} />
-            )}
-          </Pressable>
+          {captureMode === "video" ? (
+            <Pressable
+              style={styles.captureButton}
+              onPress={recordingSeconds === null ? () => void startRecording() : stopRecording}
+              accessibilityRole="button"
+              accessibilityLabel={recordingSeconds === null ? "Record video" : "Stop recording"}
+            >
+              <View style={recordingSeconds === null ? styles.recordInner : styles.recordStop} />
+            </Pressable>
+          ) : (
+            <Pressable
+              style={[styles.captureButton, (capturing || imageUris.length >= 8) && styles.captureDisabled]}
+              onPress={takePhoto}
+              disabled={capturing || imageUris.length >= 8}
+            >
+              {capturing ? (
+                <ActivityIndicator color={theme.colors.textPrimary} />
+              ) : (
+                <View style={styles.captureInner} />
+              )}
+            </Pressable>
+          )}
         </View>
 
         {/* Flip */}
-        <Pressable style={styles.sideAction} onPress={toggleFacing}>
+        <Pressable style={styles.sideAction} onPress={toggleFacing} disabled={recordingSeconds !== null}>
           <View style={styles.sideIconBox}>
             <Ionicons name="camera-reverse-outline" size={22} color={theme.colors.textPrimary} />
           </View>
           <Text style={styles.sideLabel}>Flip</Text>
         </Pressable>
       </View>
+
+      {/* Video preview */}
+      <Modal visible={previewVideo && !!video} transparent animationType="fade" onRequestClose={() => setPreviewVideo(false)}>
+        <View style={styles.videoModal}>
+          {video && <ListingVideoPlayer uri={video.uri} style={styles.videoModalPlayer} />}
+          <Pressable style={styles.videoModalClose} onPress={() => setPreviewVideo(false)} accessibilityLabel="Close video">
+            <Ionicons name="close" size={26} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      </Modal>
 
       {/* Preview Modal */}
       <Modal visible={!!previewImage} transparent animationType="fade" onRequestClose={() => setPreviewImage(null)}>
@@ -388,7 +549,7 @@ export default function CameraScreen() {
 
 /* ── Styles ────────────────────────────────────────────────── */
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -477,6 +638,57 @@ const styles = StyleSheet.create({
     borderRadius: 29,
     backgroundColor: theme.colors.surface,
   },
+  recordInner: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#FF3B30",
+  },
+  recordStop: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    backgroundColor: "#FF3B30",
+  },
+  modeSwitch: {
+    flexDirection: "row",
+    alignSelf: "center",
+    marginTop: 12,
+    padding: 3,
+    borderRadius: theme.radius.chip,
+    backgroundColor: theme.colors.surface,
+  },
+  modeOption: {
+    paddingHorizontal: 18,
+    paddingVertical: 6,
+    borderRadius: theme.radius.chip,
+  },
+  modeOptionActive: {
+    backgroundColor: theme.colors.accent,
+  },
+  modeText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.textSecondary,
+  },
+  modeTextActive: {
+    color: theme.colors.accentText,
+  },
+  videoModal: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.95)",
+    justifyContent: "center",
+  },
+  videoModalPlayer: {
+    width: "100%",
+    height: "80%",
+  },
+  videoModalClose: {
+    position: "absolute",
+    top: 56,
+    right: 20,
+    padding: 8,
+  },
   captureInnerReady: {
     width: 58,
     height: 58,
@@ -512,4 +724,4 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16,
   },
-});
+}));

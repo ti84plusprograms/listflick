@@ -4,7 +4,7 @@ import { Fragment, useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { theme } from "../../constants/theme";
+import { theme, themedStyles } from "../../constants/theme";
 import { parseLegalMarkdown, type LegalBlock } from "../../utils/legalContent";
 
 function InlineText({ text }: { text: string }) {
@@ -91,7 +91,7 @@ export function LegalDocumentScreen({ markdown, screenTitle }: { markdown: strin
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -165,4 +165,4 @@ const styles = StyleSheet.create({
     lineHeight: 25,
     fontWeight: "700",
   },
-});
+}));

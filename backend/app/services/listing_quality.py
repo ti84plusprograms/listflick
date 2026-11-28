@@ -187,6 +187,9 @@ def _pricing_score(listing: GeneratedListing) -> ComponentScore:
     if price.min != price.max and price.recommended_price <= 0:
         score -= 3
         suggestion = suggestion or "Choose a final asking price from the suggested range."
+    if listing.price_question is not None and listing.price_question.question:
+        score -= 4
+        suggestion = "Answer the price question so the suggested price fits your exact item."
     return ComponentScore("pricing", max(0, score), suggestion)
 
 

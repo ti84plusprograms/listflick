@@ -11,9 +11,11 @@ import {
   getItem,
   startOrResumeAnalysis,
   uploadImages,
+  uploadItemVideo,
+  uploadVideoListing,
 } from "../services/api";
 import { normalizeListingCondition, applyUserProfileToDescription } from "../utils/descriptionFormatter";
-import { theme } from "../constants/theme";
+import { theme, themedStyles } from "../constants/theme";
 import {
   clearPendingAnalysisOperation,
   getPendingAnalysisOperation,
@@ -24,13 +26,22 @@ import {
 import { useAuth } from "../state/AuthContext";
 import { useListingWorkspaceActions } from "../state/ListingWorkspaceContext";
 import { userProfileDefaultsFromAuth } from "../utils/userProfile";
-import { assertPendingPhotosAvailable, updatePendingAnalysisOperation } from "../utils/pendingAnalysis";
+import {
+  assertPendingPhotosAvailable,
+  assertPendingVideoAvailable,
+  pendingOperationHasMedia,
+  updatePendingAnalysisOperation,
+} from "../utils/pendingAnalysis";
+import { listingVideoFromItem } from "../utils/listingVideo";
 import { ListFlickMark } from "../components/brand/ListFlickMark";
+import { providerDisplayName } from "../utils/aiSettingsState";
 import {
   showAIKeyRequiredPrompt,
   showAIProviderCredentialInvalidPrompt,
   showAIProviderRequiredPrompt,
 } from "../utils/aiCredentialPrompt";
+import { sendListingNotification } from "../services/notifications";
+import { analysisFailedNotification, analysisFinishedNotification } from "../utils/preferences";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -47,6 +58,12 @@ function localPhotoExists(uri: string): boolean {
   }
 }
 
+/** Tells the user, if they left the app, that this listing needs them. */
+function notifyAnalysisNeedsAttention(message: string): void {
+  const { kind, content } = analysisFailedNotification(message);
+  void sendListingNotification(kind, content);
+}
+
 async function promptForAnalysisCredentialFailure(errorCode?: string | null): Promise<string | null> {
   if (errorCode !== "AI_CREDENTIAL_REQUIRED" && errorCode !== "AI_PROVIDER_CREDENTIAL_INVALID") {
     return null;
@@ -56,7 +73,7 @@ async function promptForAnalysisCredentialFailure(errorCode?: string | null): Pr
     showAIProviderRequiredPrompt();
     return "Choose an AI provider and add its API key before resuming this listing.";
   }
-  const label = provider === "gemini" ? "Gemini" : "Groq";
+  const label = providerDisplayName(provider);
   if (errorCode === "AI_PROVIDER_CREDENTIAL_INVALID") {
     showAIProviderCredentialInvalidPrompt(provider);
     return `The provider rejected your ${label} API key. Replace it and try again.`;
@@ -106,14 +123,14 @@ export default function ProcessingScreen() {
 
     (async () => {
       try {
-        let operation = await getPendingAnalysisOperation();
-        if (!operation || (operationId && operation.operationId !== operationId)) {
+        let operation = await getPendingAnalysisOperation(operationId);
+        if (!operation) {
           throw new Error("This listing is no longer available to resume.");
         }
         const uris = operation.imageUris;
         const stableOperationId = operation.operationId;
-        if (uris.length === 0) throw new Error("No image provided");
-        setUrisToDisplay(uris);
+        if (!pendingOperationHasMedia(operation)) throw new Error("No image provided");
+        setUrisToDisplay(uris.length > 0 ? uris : (operation.video?.frames[0] ? [operation.video.frames[0].uri] : []));
 
         const persist = async (
           update: Parameters<typeof updatePendingAnalysisOperation>[1]
@@ -124,8 +141,21 @@ export default function ProcessingScreen() {
 
         const uploadOperation = async () => {
           assertPendingPhotosAvailable(uris, localPhotoExists);
-          setStatusText("Uploading your photos…");
+          assertPendingVideoAvailable(operation!.video, localPhotoExists);
           await persist({ phase: "uploading", lastErrorCode: undefined });
+          const pendingVideo = operation!.video;
+          if (uris.length === 0 && pendingVideo) {
+            // Video only: the backend makes the sharpest frame the cover photo.
+            setStatusText("Uploading your video…");
+            const videoResult = await uploadVideoListing(pendingVideo, pendingVideo.frames, stableOperationId);
+            await persist({
+              itemId: videoResult.item_id,
+              phase: videoResult.status === "uploaded" ? "uploaded" : "uploading",
+              video: { ...pendingVideo, uploaded: true },
+            });
+            return;
+          }
+          setStatusText("Uploading your photos…");
           const uploadResult = await uploadImages(uris, stableOperationId);
           await persist({
             itemId: uploadResult.item_id,
@@ -133,18 +163,50 @@ export default function ProcessingScreen() {
           });
         };
 
+        // Photos first, then the listing's video (and its candidate frames) on the same item.
+        const uploadPendingVideo = async () => {
+          const pendingVideo = operation!.video;
+          if (!pendingVideo || pendingVideo.uploaded || !operation!.itemId) return;
+          assertPendingVideoAvailable(pendingVideo, localPhotoExists);
+          setStatusText("Uploading your video…");
+          try {
+            await uploadItemVideo(operation!.itemId, pendingVideo, pendingVideo.frames);
+          } catch (cause) {
+            // A clip the server refuses (too large or an unsupported format) shouldn't block the
+            // photos: drop the video and keep going so the listing still gets made.
+            if (!(cause instanceof ApiError) || (cause.status !== 413 && cause.status !== 415)) throw cause;
+            await persist({ video: undefined });
+            Alert.alert(
+              "Video skipped",
+              cause.status === 413
+                ? "The video was too large to upload, so the listing was made from your photos. You can add a shorter clip from Manage Photos."
+                : "That video format isn't supported, so the listing was made from your photos."
+            );
+            return;
+          }
+          await persist({ video: { ...pendingVideo, uploaded: true } });
+        };
+
         if (!operation.itemId) {
           await uploadOperation();
           if (cancelled) return;
         }
+        await uploadPendingVideo();
+        if (cancelled) return;
 
         let result;
         try {
           result = await getItem(operation.itemId!);
         } catch (cause) {
           if (!(cause instanceof ApiError) || cause.status !== 404) throw cause;
-          await persist({ itemId: undefined, phase: "selected" });
+          await persist({
+            itemId: undefined,
+            phase: "selected",
+            video: operation.video ? { ...operation.video, uploaded: false } : undefined,
+          });
           await uploadOperation();
+          if (cancelled) return;
+          await uploadPendingVideo();
           if (cancelled) return;
           result = await getItem(operation.itemId!);
         }
@@ -159,6 +221,7 @@ export default function ProcessingScreen() {
                 lastErrorCode: job.last_error_code ?? undefined,
               });
               setError(credentialMessage);
+              notifyAnalysisNeedsAttention(credentialMessage);
               return;
             }
           }
@@ -189,6 +252,7 @@ export default function ProcessingScreen() {
                 const credentialMessage = await promptForAnalysisCredentialFailure(job.last_error_code);
                 if (credentialMessage) {
                   setError(credentialMessage);
+                  notifyAnalysisNeedsAttention(credentialMessage);
                   return;
                 }
                 throw new Error("Analysis was interrupted. Choose Try Again to resume this listing.");
@@ -227,11 +291,15 @@ export default function ProcessingScreen() {
 
         const profile = await getUserProfile(user?.uid, authProfileDefaults);
         const finalDescription = applyUserProfileToDescription(listing.description, profile);
+        // A video-only listing's cover is a frame on the backend, not a local photo.
+        const listingImageUris = uris.length > 0 ? uris : [`/api/items/${result.id}/image/0`];
+        const workspaceVideo = listingVideoFromItem(result.video);
 
         hydrateWorkspace({
           itemId: result.id,
-          imageUri: uris[0],
-          imageUris: uris,
+          imageUri: listingImageUris[0],
+          imageUris: listingImageUris,
+          video: workspaceVideo,
           title: listing.title,
           description: finalDescription,
           category: listing.marketplace_category,
@@ -245,14 +313,20 @@ export default function ProcessingScreen() {
         });
 
         await persist({ phase: "completed" });
+        const finished = analysisFinishedNotification({
+          title: listing.title,
+          missingCount: result.missing_checklist?.length ?? 0,
+        });
+        void sendListingNotification(finished.kind, finished.content);
 
         Animated.timing(progressWidth, { toValue: 100, duration: 300, useNativeDriver: false }).start(() => {
           router.replace({
             pathname: "/review",
             params: {
               itemId: result.id,
-              imageUri: uris[0],
-              imageUris: JSON.stringify(uris),
+              imageUri: listingImageUris[0],
+              imageUris: JSON.stringify(listingImageUris),
+              video: workspaceVideo ? JSON.stringify(workspaceVideo) : undefined,
               title: listing.title,
               description: finalDescription,
               category: listing.marketplace_category,
@@ -278,10 +352,11 @@ export default function ProcessingScreen() {
           showAIProviderRequiredPrompt();
         }
         if (e instanceof ApiError && e.code === "AI_CREDENTIAL_REQUIRED" && e.provider) {
-          showAIKeyRequiredPrompt(e.provider, `Add your ${e.provider === "gemini" ? "Gemini" : "Groq"} API key to generate listings.`);
+          showAIKeyRequiredPrompt(e.provider, `Add your ${providerDisplayName(e.provider)} API key to generate listings.`);
         }
         const message = e instanceof ApiError || e instanceof Error ? e.message : "Unknown error occurred";
         setError(message);
+        notifyAnalysisNeedsAttention(message);
       }
     })();
 
@@ -306,7 +381,7 @@ export default function ProcessingScreen() {
           style: "destructive",
           onPress: () => {
             void (async () => {
-              const operation = await getPendingAnalysisOperation();
+              const operation = await getPendingAnalysisOperation(operationId);
               if (operation?.itemId) await discardPendingItem(operation.itemId);
               if (operation) await clearPendingAnalysisOperation(operation.operationId);
               router.replace("/(tabs)");
@@ -402,7 +477,7 @@ export default function ProcessingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -505,4 +580,4 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: theme.colors.textSecondary,
   },
-});
+}));

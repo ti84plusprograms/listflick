@@ -218,7 +218,10 @@ async def test_generate_listing_renders_structured_description_once(mock_gemini_
 
     assert listing.description.count("Gray finish") == 1
     assert listing.description.count("Selling a gray desk.") == 1
-    assert "💵 Price: $35" in listing.description
+    assert "$35" not in listing.description
+    assert "Price" not in listing.description
+    assert "[Insert" not in listing.description
+    assert "Condition: Good condition with minor surface wear." in listing.description
     assert "Should not be used" not in listing.description
 
 
@@ -332,3 +335,28 @@ async def test_malformed_json_retries_via_client(mock_gemini_client):
     data_url = f"data:image/jpeg;base64,{base64.b64encode(_fake_jpeg_bytes()).decode()}"
     await service.analyze_image(data_url)
     assert mock_gemini_client.generate_json.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_listing_strips_machine_formatting_from_model_text(mock_gemini_client):
+    from app.schemas.gemini_outputs import GeminiDescriptionSections, GeminiListingOutput
+
+    mock_gemini_client.generate_json.return_value = GeminiListingOutput(
+        title="Blue Lamp — Ceramic.",
+        description_sections=GeminiDescriptionSections(
+            opening="Blue ceramic lamp — works fine \U0001F60A",
+            features=["**Glazed** base", "“Drum” shade", "Takes E26 bulbs"],
+            condition_details="Small scuff on base.",
+        ),
+        price_suggestion={"recommended_price": 20, "fast_sale_price": 15, "high_ask_price": 25, "pricing_reason": "Used ones go for $15–$25."},
+    )
+    service = AIService(client=mock_gemini_client)
+    analysis = VisionAnalysis(item_name="lamp", category="Home", condition="good", confidence=0.8)
+
+    listing = await service.generate_listing(analysis)
+
+    assert listing.title == "Blue Lamp, Ceramic"
+    assert "—" not in listing.description and "\U0001F60A" not in listing.description
+    assert "Blue ceramic lamp, works fine." in listing.description
+    assert "- Glazed base" in listing.description and '- "Drum" shade' in listing.description
+    assert listing.price_suggestion.pricing_reason == "Used ones go for $15-$25."

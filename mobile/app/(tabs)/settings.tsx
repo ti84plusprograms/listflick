@@ -23,6 +23,8 @@ import {
   deleteProviderApiKey,
   getProviderApiKey,
   setProviderApiKey,
+  AI_PROVIDERS,
+  isAIProvider,
   type AIProvider,
 } from "../../services/aiCredentials";
 
@@ -31,6 +33,8 @@ import {
   getListingDefaults,
   getDeveloperNotionMode,
   getRecentlyDeletedRetentionDays,
+  getNotificationPreferences,
+  saveNotificationPreferences,
   getSelectedAIProvider,
   getUserProfile,
   saveListingDefaults,
@@ -41,9 +45,20 @@ import {
   clearLocalUserData,
 } from "../../services/storage";
 import type { NotionCapability, UserProfile } from "../../types/listing";
-import { theme } from "../../constants/theme";
+import { theme, themedStyles } from "../../constants/theme";
 import { useAIInsightsSettings } from "../../state/AIInsightsContext";
 import { useAuth } from "../../state/AuthContext";
+import { useAppearance } from "../../state/AppearanceContext";
+import { requestNotificationPermission } from "../../services/notifications";
+import { showNotImplemented } from "../../utils/notImplemented";
+import { getSettingsSnapshot, snapshotProfileFor, updateSettingsSnapshot } from "../../utils/settingsSnapshot";
+import {
+  CURRENCY_MESSAGE,
+  CURRENCY_TITLE,
+  colorSchemeLabel,
+  notificationsLabel,
+  type NotificationPreferences,
+} from "../../utils/preferences";
 import {
   isUserProfileComplete,
   userProfileDefaultsFromAuth,
@@ -101,7 +116,7 @@ function ToggleRow({
           value={value}
           onValueChange={onValueChange}
           disabled={disabled}
-          trackColor={{ true: theme.colors.textPrimary }}
+          trackColor={{ true: theme.colors.textPrimary }} thumbColor={theme.colors.switchThumb}
           style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
         />
       </View>
@@ -154,13 +169,17 @@ function NavRow({
 export default function SettingsScreen() {
   const params = useLocalSearchParams<{ manageProvider?: string; chooseProvider?: string }>();
   const { user, loading: authLoading, signOut } = useAuth();
-  const [profile, setProfile] = useState<UserProfile>(EMPTY_USER_PROFILE);
-  const [defaultPickup, setDefaultPickup] = useState(false);
-  const [retentionDays, setRetentionDays] = useState(30);
+  // Start from the last loaded values: switching Appearance remounts this screen.
+  const [profile, setProfile] = useState<UserProfile>(() => snapshotProfileFor(user?.uid));
+  const [defaultPickup, setDefaultPickup] = useState(() => getSettingsSnapshot().defaultPickup);
+  const [retentionDays, setRetentionDays] = useState(() => getSettingsSnapshot().retentionDays);
+  const { scheme, setScheme } = useAppearance();
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferences>(() => getSettingsSnapshot().notificationPrefs);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [developerNotionEnabled, setDeveloperNotionEnabled] = useState(true);
   const [notionCapability, setNotionCapability] = useState<NotionCapability | null>(null);
   const [deletingAccount, setDeletingAccount] = useState(false);
-  const [providerKeys, setProviderKeys] = useState<Record<AIProvider, boolean>>({ gemini: false, groq: false });
+  const [providerKeys, setProviderKeys] = useState<Record<AIProvider, boolean>>({ gemini: false, groq: false, claude: false });
   const [selectedProvider, setSelectedProvider] = useState<AIProvider | null>(null);
   const [aiSettingsLoading, setAISettingsLoading] = useState(true);
   const [aiSettingsLoadFailed, setAISettingsLoadFailed] = useState(false);
@@ -187,6 +206,10 @@ export default function SettingsScreen() {
   );
   const showNotionDeveloperUi = shouldShowNotionUi(__DEV__, notionCapability);
 
+  useEffect(() => {
+    updateSettingsSnapshot({ profile, profileOwner: user?.uid ?? null, defaultPickup, retentionDays, notificationPrefs });
+  }, [profile, user?.uid, defaultPickup, retentionDays, notificationPrefs]);
+
   useFocusEffect(
     useCallback(() => {
       let active = true;
@@ -200,14 +223,16 @@ export default function SettingsScreen() {
 
       void (async () => {
         try {
-          const [savedProfile, savedDefaults, savedRetentionDays, savedDeveloperNotionMode, health] = await Promise.all([
+          const [savedProfile, savedDefaults, savedRetentionDays, savedDeveloperNotionMode, health, savedNotificationPrefs] = await Promise.all([
             getUserProfile(user?.uid, authProfileDefaults),
             getListingDefaults(),
             getRecentlyDeletedRetentionDays(),
             __DEV__ ? getDeveloperNotionMode() : Promise.resolve(true),
             healthPromise,
+            getNotificationPreferences(),
           ]);
           if (!active) return;
+          setNotificationPrefs(savedNotificationPrefs);
           setProfile(savedProfile);
           setDefaultPickup(savedDefaults.defaultLocalPickup);
           setRetentionDays(savedRetentionDays);
@@ -220,23 +245,22 @@ export default function SettingsScreen() {
 
       void (async () => {
         try {
-          const [health, geminiKey, groqKey, savedProvider] = await Promise.all([
+          const [health, geminiKey, groqKey, claudeKey, savedProvider] = await Promise.all([
             healthPromise,
             user?.uid ? getProviderApiKey(user.uid, "gemini") : Promise.resolve(null),
             user?.uid ? getProviderApiKey(user.uid, "groq") : Promise.resolve(null),
+            user?.uid ? getProviderApiKey(user.uid, "claude") : Promise.resolve(null),
             getSelectedAIProvider(),
           ]);
-          const backendProvider = health?.ai_provider === "gemini" || health?.ai_provider === "groq"
-            ? health.ai_provider
-            : null;
+          const backendProvider = isAIProvider(health?.ai_provider) ? health.ai_provider : null;
           const fallbackProvider = backendProvider && isServerAIKeyFallbackAvailable(health, backendProvider)
             ? backendProvider
             : null;
           console.log(
-            `[AI] Settings loaded: savedProvider=${savedProvider ?? "none"}, backendProvider=${backendProvider ?? "none"}, geminiKeySaved=${Boolean(geminiKey?.trim())}, groqKeySaved=${Boolean(groqKey?.trim())}, fallbackEnabled=${health?.allow_server_ai_key_fallback === true}, serverFallbackProvider=${fallbackProvider ?? "none"}, healthAvailable=${health !== null}, screenActive=${active}`,
+            `[AI] Settings loaded: savedProvider=${savedProvider ?? "none"}, backendProvider=${backendProvider ?? "none"}, geminiKeySaved=${Boolean(geminiKey?.trim())}, groqKeySaved=${Boolean(groqKey?.trim())}, claudeKeySaved=${Boolean(claudeKey?.trim())}, fallbackEnabled=${health?.allow_server_ai_key_fallback === true}, serverFallbackProvider=${fallbackProvider ?? "none"}, healthAvailable=${health !== null}, screenActive=${active}`,
           );
           if (!active) return;
-          setProviderKeys({ gemini: Boolean(geminiKey?.trim()), groq: Boolean(groqKey?.trim()) });
+          setProviderKeys({ gemini: Boolean(geminiKey?.trim()), groq: Boolean(groqKey?.trim()), claude: Boolean(claudeKey?.trim()) });
           setSelectedProvider(savedProvider);
           setServerFallbackProvider(fallbackProvider);
         } catch (error) {
@@ -252,7 +276,7 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     const provider = params.manageProvider;
-    if (!user || (provider !== "gemini" && provider !== "groq")) return;
+    if (!user || !isAIProvider(provider)) return;
     router.setParams({ manageProvider: undefined });
     void (async () => {
       const savedProvider = await getSelectedAIProvider();
@@ -281,9 +305,41 @@ export default function SettingsScreen() {
     await setAIInsightsEnabled(v);
   };
 
-  const handleSuggestedPricingToggle = async (v: boolean) => {
-    // Future: separate setting. For now mirrors AI insights.
-    await setAIInsightsEnabled(v);
+  const handleSuggestedPricingToggle = () => {
+    showNotImplemented("A separate Suggested Pricing setting");
+  };
+
+  const updateNotificationPrefs = async (next: NotificationPreferences) => {
+    setNotificationPrefs(next);
+    await saveNotificationPreferences(next);
+  };
+
+  const handleNotificationsToggle = async (enabled: boolean) => {
+    if (!enabled) {
+      await updateNotificationPrefs({ ...notificationPrefs, enabled: false });
+      return;
+    }
+    const allowed = await requestNotificationPermission();
+    if (allowed) {
+      await updateNotificationPrefs({ ...notificationPrefs, enabled: true });
+      return;
+    }
+    Alert.alert("Notifications are off for ListFlick", "Turn them on in iOS Settings to get listing alerts.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Open Settings", onPress: () => void Linking.openSettings() },
+    ]);
+  };
+
+  const chooseAppearance = () => {
+    Alert.alert("Appearance", undefined, [
+      ...(["light", "dark"] as const).map((option) => ({
+        text: `${colorSchemeLabel(option)}${option === scheme ? " ✓" : ""}`,
+        onPress: () => {
+          if (option !== scheme) void setScheme(option);
+        },
+      })),
+      { text: "Cancel", style: "cancel" },
+    ]);
   };
 
   const handleDefaultPickupToggle = async (v: boolean) => {
@@ -537,7 +593,7 @@ export default function SettingsScreen() {
             icon="pricetag-outline"
             label="Suggested Pricing"
             subtitle="Auto-fill recommended price"
-            value={aiInsightsEnabled}
+            value={false}
             onValueChange={handleSuggestedPricingToggle}
           />
           <ToggleRow
@@ -552,10 +608,15 @@ export default function SettingsScreen() {
         {/* PREFERENCES */}
         <Text style={styles.sectionLabel}>PREFERENCES</Text>
         <View style={styles.groupCard}>
-          <NavRow icon="notifications-outline" label="Notifications" />
-          <NavRow icon="logo-usd" label="Currency" value="USD" />
+          <NavRow
+            icon="notifications-outline"
+            label="Notifications"
+            value={notificationsLabel(notificationPrefs)}
+            onPress={() => setNotificationsVisible(true)}
+          />
+          <NavRow icon="logo-usd" label="Currency" value="USD" onPress={() => Alert.alert(CURRENCY_TITLE, CURRENCY_MESSAGE)} />
           <NavRow icon="trash-outline" label="Recently Deleted" value={`${retentionDays} days`} onPress={chooseRetentionDays} />
-          <NavRow icon="moon-outline" label="Appearance" value="Light" isLast />
+          <NavRow icon="moon-outline" label="Appearance" value={colorSchemeLabel(scheme)} onPress={chooseAppearance} isLast />
         </View>
 
         {/* AI */}
@@ -660,6 +721,50 @@ export default function SettingsScreen() {
       </ScrollView>
 
       <Modal
+        visible={notificationsVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setNotificationsVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Notifications</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close notification settings" onPress={() => setNotificationsVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.textSecondary} />
+              </Pressable>
+            </View>
+            <View style={styles.selectorCard}>
+              <ToggleRow
+                icon="notifications-outline"
+                label="Allow Notifications"
+                subtitle="Alerts while ListFlick is in the background"
+                value={notificationPrefs.enabled}
+                onValueChange={(v) => void handleNotificationsToggle(v)}
+              />
+              <ToggleRow
+                icon="checkmark-circle-outline"
+                label="Listing Ready"
+                subtitle="When a listing finishes writing"
+                value={notificationPrefs.enabled && notificationPrefs.listingReady}
+                onValueChange={(v) => void updateNotificationPrefs({ ...notificationPrefs, listingReady: v })}
+                disabled={!notificationPrefs.enabled}
+              />
+              <ToggleRow
+                icon="alert-circle-outline"
+                label="Needs Attention"
+                subtitle="When a listing fails or is missing details"
+                value={notificationPrefs.enabled && notificationPrefs.needsAttention}
+                onValueChange={(v) => void updateNotificationPrefs({ ...notificationPrefs, needsAttention: v })}
+                disabled={!notificationPrefs.enabled}
+                isLast
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={providerSelectorVisible}
         animationType="slide"
         transparent
@@ -674,7 +779,7 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
             <View style={styles.selectorCard}>
-              {(["gemini", "groq"] as const).map((provider, index) => {
+              {AI_PROVIDERS.map((provider, index) => {
                 const selected = selectedProvider === provider;
                 const label = providerDisplayName(provider);
                 return (
@@ -690,7 +795,7 @@ export default function SettingsScreen() {
                       <Text style={styles.selectorLabel}>{label}</Text>
                       {selected ? <Ionicons name="checkmark" size={22} color={theme.colors.accent} /> : null}
                     </Pressable>
-                    {index === 0 ? <View style={styles.selectorDivider} /> : null}
+                    {index < AI_PROVIDERS.length - 1 ? <View style={styles.selectorDivider} /> : null}
                   </View>
                 );
               })}
@@ -836,7 +941,7 @@ export default function SettingsScreen() {
 
 /* ── Styles ────────────────────────────────────────────────── */
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -1186,4 +1291,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-});
+}));

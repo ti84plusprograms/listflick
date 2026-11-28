@@ -1,7 +1,9 @@
 import type { AIProvider } from "../services/aiCredentials";
 
-export function providerDisplayName(provider: AIProvider): "Gemini" | "Groq" {
-  return provider === "gemini" ? "Gemini" : "Groq";
+export function providerDisplayName(provider: AIProvider): "Gemini" | "Groq" | "Claude" {
+  if (provider === "gemini") return "Gemini";
+  if (provider === "groq") return "Groq";
+  return "Claude";
 }
 
 export function aiSettingsPresentation(provider: AIProvider | null, configured: boolean) {

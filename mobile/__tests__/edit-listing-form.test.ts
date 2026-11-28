@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { EditListingFormState } from "../utils/editListingForm";
 import {
   applyListingImprovementToForm,
@@ -8,6 +10,7 @@ import {
   formToDraftListingEdits,
   listingImprovementHints,
   listingImprovementSummary,
+  improvementSummary,
 } from "../utils/editListingForm";
 import { parseListingDescription } from "../utils/descriptionFormatter";
 import type { ListingWorkspaceState, PriceSuggestion } from "../types/listing";
@@ -219,4 +222,110 @@ equal(
   "disabled insights hide improvement suggestions"
 );
 
+// Plain layout (current backend output): price edits never write a price line.
+const plainDescription = [
+  "Anglepoise Type 75 desk lamp in black.",
+  "",
+  "Details:",
+  "- Adjustable arm",
+  "- Weighted base",
+  "- E26 bulb",
+  "",
+  "Condition: Good. Light scuffing on the base.",
+  "",
+  "Pickup in Downtown.",
+].join("\n");
+const plainForm = createInitialEditListingForm({
+  listing: baseListing(plainDescription),
+  parsedDescription: parseListingDescription(plainDescription),
+});
+equal(plainForm.priceInput, "125", "plain layout price comes from the workspace, not the text");
+equal(plainForm.condition, "Good", "plain layout condition parses");
+equal(plainForm.flaws, "Light scuffing on the base.", "plain layout flaws parse");
+equal(plainForm.localPickup, true, "plain layout pickup parses");
+
+const plainPriceEdit = descriptionWithFormDetails(plainDescription, { ...plainForm, priceInput: "60" });
+equal(plainPriceEdit, plainDescription, "changing only the price leaves a plain description untouched");
+
+const plainNegotiable = descriptionWithFormDetails(plainDescription, {
+  ...plainForm,
+  priceInput: "60",
+  negotiable: true,
+  brandModel: "Anglepoise Type 75",
+  shipping: true,
+});
+equal(plainNegotiable.includes("$60"), false, "no price in the plain description");
+equal(plainNegotiable.includes("Price:"), false, "no price line in the plain description");
+equal(plainNegotiable.includes("- Brand/model: Anglepoise Type 75"), true, "brand goes into the Details list");
+equal(
+  plainNegotiable.endsWith("Pickup in Downtown. Shipping available. Open to reasonable offers."),
+  true,
+  "negotiable and shipping go on the logistics line"
+);
+equal(
+  descriptionWithFormDetails(plainNegotiable, { ...plainForm, priceInput: "60", negotiable: true, brandModel: "Anglepoise Type 75", shipping: true }),
+  plainNegotiable,
+  "plain regeneration is idempotent"
+);
+const reparsed = createInitialEditListingForm({
+  listing: baseListing(plainNegotiable),
+  parsedDescription: parseListingDescription(plainNegotiable),
+});
+equal(reparsed.negotiable, true, "negotiable round-trips through the plain layout");
+equal(reparsed.shipping, true, "shipping round-trips through the plain layout");
+equal(reparsed.brandModel, "Anglepoise Type 75", "brand round-trips through the plain layout");
+
+// Legacy layout still writes the price line so old listings keep working.
+const legacyPriceEdit = descriptionWithFormDetails(structured, { ...detailsForm, priceInput: "70", negotiable: false });
+equal(legacyPriceEdit.includes("💵 Price: $70"), true, "legacy layout keeps updating its price line");
+
 console.log("Edit listing form tests passed.");
+
+// Improve with AI: the note under the chips says what actually changed.
+{
+  const before = { title: "Oak desk", description: "Solid desk.", price: "120" };
+  equal(
+    improvementSummary("make_title_more_searchable", before, { ...before, title: "Solid Oak Writing Desk" }),
+    "Title rewritten so buyers can find it in search. Check it over before you save.",
+    "title-only improvement names the title"
+  );
+  equal(
+    improvementSummary("generate_platform_ready_version", before, { ...before, title: "Oak Desk", description: "Solid oak desk." }),
+    "Title and description polished for Marketplace. Check it over before you save.",
+    "both fields changed"
+  );
+  equal(improvementSummary("make_description_shorter", before, before), "No changes were needed.", "no-op improvement says so");
+  equal(
+    improvementSummary("make_price_more_competitive", before, { ...before, price: "95" }),
+    "Price lowered to $95 to sell faster.",
+    "price improvement names the new price"
+  );
+  equal(
+    improvementSummary("make_price_more_competitive", before, before),
+    "The price already looks competitive, so it stayed the same.",
+    "unchanged price is reported honestly"
+  );
+}
+
+{
+  const edit = readFileSync(resolve(__dirname, "../app/edit-listing.tsx"), "utf8");
+  for (const action of [
+    "make_title_more_searchable",
+    "make_description_shorter",
+    "make_description_more_casual",
+    "make_description_more_professional",
+    "add_condition_details",
+    "improve_buyer_trust",
+    "make_price_more_competitive",
+    "generate_platform_ready_version",
+  ]) {
+    if (!edit.includes(`"${action}"`)) throw new Error(`Edit screen is missing the ${action} chip`);
+  }
+  for (const snippet of ["IMPROVE WITH AI", "{improveSummary}", "onPress={() => runImprovement(action)}"]) {
+    if (!edit.includes(snippet)) throw new Error(`Edit screen is missing ${snippet}`);
+  }
+  const tiers = readFileSync(resolve(__dirname, "../components/listing/PricingTiers.tsx"), "utf8");
+  if (!tiers.includes("pricing.pricing_reason")) throw new Error("Pricing tiers no longer show why the price was picked");
+}
+
+console.log("Edit listing form improve-with-AI tests passed.");

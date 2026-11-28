@@ -11,12 +11,17 @@ from groq import AsyncGroq
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.image_payload import collect_images, image_label
 from app.utils.json_parser import parse_and_validate
 from app.services.ai_credentials import AIProviderCredentialInvalidError
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+# Groq vision models accept a handful of images and cap base64 request bodies at about 4 MB.
+GROQ_MAX_IMAGES = 5
+GROQ_MAX_IMAGE_BYTES = 2_800_000
 
 
 class GroqClientError(Exception):
@@ -119,13 +124,20 @@ class GroqClient:
         schema_model: type[T],
         max_output_tokens: int = 800,
         max_retries: int | None = None,
+        images: list[bytes] | None = None,
     ) -> T:
         self._ensure_configured()
         assert self._client is not None
 
+        photos = collect_images(
+            image_bytes,
+            images,
+            limit=GROQ_MAX_IMAGES,
+            max_total_bytes=GROQ_MAX_IMAGE_BYTES,
+        )
         retries = max_retries if max_retries is not None else settings.groq_max_retries
-        model_name = settings.groq_vision_model if image_bytes else settings.groq_text_model
-        reasoning_effort = settings.groq_vision_reasoning_effort if image_bytes else None
+        model_name = settings.groq_vision_model if photos else settings.groq_text_model
+        reasoning_effort = settings.groq_vision_reasoning_effort if photos else None
 
         # Build messages standard format
         messages: list[dict[str, Any]] = []
@@ -133,8 +145,10 @@ class GroqClient:
             messages.append({"role": "system", "content": system_instruction})
 
         user_content: list[dict[str, Any]] = [{"type": "text", "text": user_prompt}]
-        if image_bytes:
-            encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+        for index, photo in enumerate(photos):
+            if len(photos) > 1:
+                user_content.append({"type": "text", "text": image_label(index, len(photos))})
+            encoded_image = base64.b64encode(photo).decode("utf-8")
             user_content.append(
                 {
                     "type": "image_url",

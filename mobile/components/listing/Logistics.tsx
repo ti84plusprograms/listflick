@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Switch, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { theme } from "../../constants/theme";
+import { theme, themedStyles } from "../../constants/theme";
 
 interface LogisticsProps {
   localPickup: boolean;
@@ -18,7 +18,7 @@ export function Logistics({ localPickup, setLocalPickup, shipping, setShipping }
           <Ionicons name="location-outline" size={20} color={theme.colors.textPrimary} />
           <Text style={styles.logisticsLabel}>Local Pickup</Text>
         </View>
-        <Switch value={localPickup} onValueChange={setLocalPickup} trackColor={{ true: theme.colors.accent }} />
+        <Switch value={localPickup} onValueChange={setLocalPickup} trackColor={{ true: theme.colors.accent }} thumbColor={theme.colors.switchThumb} />
       </View>
       <View style={styles.logisticsDivider} />
       <View style={styles.logisticsRow}>
@@ -26,13 +26,13 @@ export function Logistics({ localPickup, setLocalPickup, shipping, setShipping }
           <Ionicons name="cube-outline" size={20} color={theme.colors.textPrimary} />
           <Text style={styles.logisticsLabel}>Shipping</Text>
         </View>
-        <Switch value={shipping} onValueChange={setShipping} trackColor={{ true: theme.colors.accent }} />
+        <Switch value={shipping} onValueChange={setShipping} trackColor={{ true: theme.colors.accent }} thumbColor={theme.colors.switchThumb} />
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles(() => StyleSheet.create({
   logisticsContainer: {
     borderWidth: 1,
     borderColor: theme.colors.borderSubtle,
@@ -61,4 +61,4 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: theme.colors.textPrimary,
   },
-});
+}));
