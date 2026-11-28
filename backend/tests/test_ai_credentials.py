@@ -10,8 +10,6 @@ from app.services.ai_credentials import (
     resolve_ai_credential,
 )
 from app.services.analyze_service import improve_listing_record
-from app.services.analyze_service import ai_service_for_request
-from app.services.e2e_ai_service import DeterministicE2EAIService
 
 
 def test_request_key_takes_precedence_over_explicit_server_fallback(monkeypatch):
@@ -38,37 +36,6 @@ def test_enabled_fallback_requires_a_server_key(monkeypatch):
 
     with pytest.raises(AICredentialRequiredError):
         resolve_ai_credential("groq")
-
-
-@pytest.mark.asyncio
-async def test_e2e_ai_service_returns_fixture_without_provider_credentials(monkeypatch):
-    monkeypatch.setattr("app.services.e2e_ai_service.PROCESSING_VISIBILITY_SECONDS", 0)
-    monkeypatch.setattr(settings, "e2e_mode", True)
-    monkeypatch.setattr(settings, "ai_provider", "gemini")
-    monkeypatch.setattr(settings, "allow_server_ai_key_fallback", False)
-    monkeypatch.setattr(settings, "gemini_api_key", "")
-    monkeypatch.setattr(settings, "groq_api_key", "")
-
-    ai, credential = ai_service_for_request()
-
-    assert isinstance(ai, DeterministicE2EAIService)
-    assert credential.provider == "gemini"
-    assert credential.value == ""
-    assert credential.source == "e2e_fixture"
-
-    analysis = await ai.analyze_image_bytes(b"fixture-image")
-    listing = await ai.generate_listing(analysis)
-
-    assert analysis.condition == "Used - Good"
-    assert listing.title == "Vintage Canon Camera"
-    assert listing.description == "A deterministic test listing description."
-    assert listing.price_suggestion.recommended_price == 125
-
-    improved = await ai.improve_listing(listing, action="improve_buyer_trust")
-    assert improved.title == "Vintage Canon AE-1 35mm Film Camera"
-    assert "Brand/model: Canon AE-1" in improved.description
-    assert "light cosmetic wear" in improved.description
-    assert listing.title == "Vintage Canon Camera"
 
 
 @pytest.mark.asyncio

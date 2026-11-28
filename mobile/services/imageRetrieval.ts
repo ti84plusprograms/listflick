@@ -1,5 +1,7 @@
+import { getApp } from "@react-native-firebase/app";
+import { getAuth, getIdToken } from "@react-native-firebase/auth";
+
 import { API_BASE_URL } from "../constants/config";
-import { AuthUser, getAuthIdToken, getAuthUser } from "./authSession";
 import {
   clearSignedImageUrlCacheForUri,
   deleteSignedUrlRequest,
@@ -19,7 +21,7 @@ export function isProtectedApiUrl(uri: string): boolean {
 /** Discards a failed protected-image resolution before an explicit user retry. */
 export function invalidateAuthenticatedImageUri(uri: string): void {
   if (!isProtectedApiUrl(uri)) return;
-  const user = getAuthUser();
+  const user = getAuth(getApp()).currentUser;
   if (user) clearSignedImageUrlCacheForUri(user.uid, uri);
 }
 
@@ -32,16 +34,11 @@ class SignedImageUrlError extends Error {
 
 let tokenRequest: { uid: string; promise: Promise<string> } | null = null;
 
-function getSharedIdToken(user: AuthUser): Promise<string> {
+function getSharedIdToken(user: NonNullable<ReturnType<typeof getAuth>["currentUser"]>): Promise<string> {
   if (tokenRequest?.uid === user.uid) return tokenRequest.promise;
-  const promise = getAuthIdToken(user)
-    .then((token) => {
-      if (!token) throw new Error("Authentication token unavailable.");
-      return token;
-    })
-    .finally(() => {
-      if (tokenRequest?.promise === promise) tokenRequest = null;
-    });
+  const promise = getIdToken(user).finally(() => {
+    if (tokenRequest?.promise === promise) tokenRequest = null;
+  });
   tokenRequest = { uid: user.uid, promise };
   return promise;
 }
@@ -70,7 +67,7 @@ async function getSignedImageUrl(apiUri: string, uid: string, token: string): Pr
 /** Resolve a protected API image to a short-lived signed URL or auth fallback. */
 export async function resolveAuthenticatedImageUri(uri: string): Promise<ResolvedImage> {
   if (!isProtectedApiUrl(uri)) return { uri };
-  const user = getAuthUser();
+  const user = getAuth(getApp()).currentUser;
   if (!user) throw new Error("Authentication required to access this image.");
 
   let token = await getSharedIdToken(user);
@@ -81,15 +78,12 @@ export async function resolveAuthenticatedImageUri(uri: string): Promise<Resolve
     const status = error instanceof SignedImageUrlError ? error.status : undefined;
     if (status === 401 || status === 403) {
       try {
-        const refreshedToken = await getAuthIdToken(user, true);
-        if (refreshedToken) {
-          token = refreshedToken;
-          try {
-            const signedUrl = await getSignedImageUrl(uri, user.uid, token);
-            if (signedUrl) return { uri: signedUrl };
-          } catch {
-            // Preserve the authenticated API fallback when the retry fails.
-          }
+        token = await getIdToken(user, true);
+        try {
+          const signedUrl = await getSignedImageUrl(uri, user.uid, token);
+          if (signedUrl) return { uri: signedUrl };
+        } catch {
+          // Preserve the authenticated API fallback when the retry fails.
         }
       } catch {
         // Preserve the original token for the authenticated API fallback.

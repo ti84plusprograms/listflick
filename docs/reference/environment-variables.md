@@ -4,9 +4,6 @@
 
 | Variable | Purpose |
 |---|---|
-| `APP_ENV` | runtime label; must be exactly `e2e` before deterministic fixture mode can start |
-| `E2E_MODE` | local-only deterministic AI and simulated-auth backend switch; defaults to `false` and fails closed unless all E2E isolation checks pass |
-| `E2E_REQUIRE_BYOK_UI` | E2E-only health variant that reports no server fallback or configured provider key so Maestro can exercise first-time provider UX |
 | `AI_PROVIDER` | backend default (`gemini`, `groq`, or `claude`); also the mobile effective provider when fallback is enabled and the user has no saved preference |
 | `ALLOW_SERVER_AI_KEY_FALLBACK` | allow server Gemini/Groq/Claude keys without a request BYOK key; the code, example, and Render blueprint defaults are `false`; when explicitly enabled, it also allows `AI_PROVIDER` to resolve an unset mobile preference |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini credentials/model |
@@ -24,7 +21,6 @@
 | `ANALYSIS_LEASE_SECONDS` | request-inline analysis lease duration; defaults to `300` |
 | `ANALYSIS_MAX_ATTEMPTS` | maximum claims before terminal failure; defaults to `3` |
 | `PENDING_ITEM_RETENTION_HOURS` | resumable unsaved-item retention; defaults to `168` (seven days) |
-| `UPLOAD_DIR` | filesystem-storage root used when Supabase is not configured; defaults to `./uploads` |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | server-only Supabase Storage credential |
 | `SUPABASE_STORAGE_BUCKET` | private image bucket, normally `images` (also holds listing videos) |
@@ -67,19 +63,8 @@ server fallback is enabled, provider-configured booleans (`gemini_configured`,
 `groq_configured`, `claude_configured`), selected model IDs, and effective
 Notion capability metadata. It never returns credential or destination values.
 
-`E2E_MODE=true` is accepted only with `APP_ENV=e2e`, a localhost PostgreSQL
-database whose name contains `e2e`, server-key fallback disabled, Notion writes
-disabled, and no Supabase configuration. In that isolated mode, `/health`
-reports `ai_mode=deterministic_e2e`; analysis uses checked-in fixture output and
-does not construct a Gemini, Groq, or Claude client. This mode is for the local Maestro
-flow only and is not configured in `render.yaml` or any EAS profile.
-`E2E_REQUIRE_BYOK_UI=true` additionally requires `E2E_MODE=true`; it changes
-only the E2E health presentation and leaves the deterministic provider guard in
-place.
-
-The E2E startup command overrides `UPLOAD_DIR` with `backend/.e2e/uploads`, so
-its cleanup and item deletion cannot touch normal development files under
-`backend/uploads`.
+`UPLOAD_DIR` exists in the example configuration, but the current storage
+abstraction uses its `uploads/` fallback root.
 PostgreSQL is required; the backend applies versioned schema migrations from
 `backend/app/db/migrations.py` during startup.
 
@@ -130,16 +115,9 @@ key.
 | `EXPO_PUBLIC_API_URL` | backend base URL compiled into the mobile app |
 | `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | self-hoster's Google OAuth web client ID; public identifier used for Google Sign-In |
 | `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | self-hoster's Google OAuth iOS client ID; public identifier required for Google Sign-In on iOS |
-| `LISTFLICK_E2E_API_URL` | local development-client API override and simulated-auth gate; accepts only a loopback HTTP URL |
-| `LISTFLICK_E2E_RESET_AI_SETTINGS` | when exactly `true`, clears the signed-in E2E user's provider selection and provider keys at app startup; requires the loopback override and is ignored outside development |
 
 Only public, non-secret configuration belongs in the mobile environment. The
 repository's preview and production EAS profiles intentionally contain no API
 URL; configure `EXPO_PUBLIC_API_URL` in your own EAS environment before
 building. If the Google client IDs are omitted, the app hides Google Sign-In;
 email/password authentication remains available once Firebase is configured.
-The two `LISTFLICK_E2E_*` variables are local test-process controls, not public
-deployment configuration; no EAS profile enables them. The mobile runtime uses
-the E2E URL and simulated identity only when `__DEV__` is also true, so setting
-the manifest value cannot activate simulated authentication in a production
-build.

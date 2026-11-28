@@ -65,10 +65,6 @@ def test_groq_vision_reasoning_effort_rejects_invalid_value(reasoning_effort):
 def test_processing_defaults_are_bounded():
     configured = Settings(_env_file=None)
 
-    assert configured.app_env == "development"
-    assert configured.e2e_mode is False
-    assert configured.e2e_require_byok_ui is False
-    assert configured.upload_dir == "./uploads"
     assert configured.analysis_lease_seconds == 300
     assert configured.analysis_max_attempts == 3
     assert configured.pending_item_retention_hours == 168
@@ -89,44 +85,6 @@ def test_processing_settings_reject_non_positive_values(field):
         Settings(_env_file=None, **{field: 0})
 
 
-def test_e2e_mode_requires_explicit_isolated_local_environment():
-    configured = Settings(
-        _env_file=None,
-        app_env="e2e",
-        e2e_mode=True,
-        database_url="postgresql://user:password@localhost:5432/listflick_e2e",
-        upload_dir="/tmp/listflick-e2e/uploads",
-    )
-
-    assert configured.e2e_mode is True
-
-
-@pytest.mark.parametrize(
-    ("overrides", "message"),
-    [
-        ({"e2e_mode": False, "e2e_require_byok_ui": True}, "E2E_MODE=true"),
-        ({"app_env": "production"}, "APP_ENV=e2e"),
-        ({"allow_server_ai_key_fallback": True}, "server AI key fallback"),
-        ({"notion_create_entries": True}, "Notion writes"),
-        ({"supabase_url": "https://example.supabase.co"}, "remote Supabase Storage"),
-        ({"database_url": "postgresql://user:password@db.example.com:5432/listflick_e2e"}, "local PostgreSQL"),
-        ({"database_url": "postgresql://user:password@localhost:5432/listflick"}, "database name containing 'e2e'"),
-        ({"upload_dir": "./uploads"}, "isolated upload directory containing 'e2e'"),
-    ],
-)
-def test_e2e_mode_fails_closed_when_isolation_is_not_explicit(overrides, message):
-    values = {
-        "app_env": "e2e",
-        "e2e_mode": True,
-        "database_url": "postgresql://user:password@localhost:5432/listflick_e2e",
-        "upload_dir": "/tmp/listflick-e2e/uploads",
-        **overrides,
-    }
-
-    with pytest.raises(ValidationError, match=message):
-        Settings(_env_file=None, **values)
-
-
 @pytest.mark.asyncio
 async def test_health_exposes_configured_groq_vision_model(monkeypatch):
     explicit_reasoning_effort = "default"
@@ -142,39 +100,6 @@ async def test_health_exposes_configured_groq_vision_model(monkeypatch):
     assert response["groq_text_model"] == DEFAULT_GROQ_TEXT_MODEL
     assert response["analysis_executor"] == "request_inline"
     assert response["allow_server_ai_key_fallback"] is False
-    assert response["ai_mode"] == "provider"
-
-
-@pytest.mark.asyncio
-async def test_health_advertises_deterministic_e2e_ai_without_provider_keys(monkeypatch):
-    monkeypatch.setattr(main.settings, "e2e_mode", True)
-    monkeypatch.setattr(main.settings, "e2e_require_byok_ui", False)
-    monkeypatch.setattr(main.settings, "allow_server_ai_key_fallback", False)
-    monkeypatch.setattr(main.settings, "gemini_api_key", "")
-    monkeypatch.setattr(main.settings, "groq_api_key", "")
-
-    response = await main.health()
-
-    assert response["ai_mode"] == "deterministic_e2e"
-    assert response["allow_server_ai_key_fallback"] is True
-    assert response["gemini_configured"] is True
-    assert response["groq_configured"] is True
-
-
-@pytest.mark.asyncio
-async def test_health_can_expose_missing_byok_state_in_deterministic_e2e_mode(monkeypatch):
-    monkeypatch.setattr(main.settings, "e2e_mode", True)
-    monkeypatch.setattr(main.settings, "e2e_require_byok_ui", True)
-    monkeypatch.setattr(main.settings, "allow_server_ai_key_fallback", False)
-    monkeypatch.setattr(main.settings, "gemini_api_key", "")
-    monkeypatch.setattr(main.settings, "groq_api_key", "")
-
-    response = await main.health()
-
-    assert response["ai_mode"] == "deterministic_e2e"
-    assert response["allow_server_ai_key_fallback"] is False
-    assert response["gemini_configured"] is False
-    assert response["groq_configured"] is False
 
 
 @pytest.mark.parametrize(

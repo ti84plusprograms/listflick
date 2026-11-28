@@ -69,7 +69,7 @@ export default function EditListingScreen() {
   } = useEditListingForm();
 
   return (
-    <View style={styles.container} testID="edit-listing-screen">
+    <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable
@@ -87,7 +87,6 @@ export default function EditListingScreen() {
         <Pressable
           onPress={saveEdits}
           style={styles.headerButtonRight}
-          testID="edit-listing-save"
           disabled={repricingLabel !== null}
           accessibilityRole="button"
           accessibilityLabel={repricingLabel ?? "Save listing edits"}
@@ -111,7 +110,6 @@ export default function EditListingScreen() {
             <Text style={styles.fieldLabel}>Title</Text>
             <TextInput
               style={styles.input}
-              testID="edit-listing-title"
               accessibilityLabel="Listing title"
               value={title}
               onChangeText={setTitle}
@@ -126,7 +124,6 @@ export default function EditListingScreen() {
               <Text style={styles.currencySymbol}>$</Text>
               <TextInput
                 style={styles.priceInput}
-                testID="edit-listing-price"
                 accessibilityLabel="Listing price"
                 value={priceInput}
                 onChangeText={setPriceInput}
@@ -221,7 +218,6 @@ export default function EditListingScreen() {
             <Text style={styles.fieldLabel}>Brand / Model</Text>
             <TextInput
               style={styles.input}
-              testID="edit-listing-brand-model"
               accessibilityLabel="Brand and model"
               value={brandModel}
               onChangeText={setBrandModel}
@@ -232,7 +228,6 @@ export default function EditListingScreen() {
             {improvementSummary ? (
               <Text
                 style={styles.improvementSummary}
-                testID="edit-listing-improvement-summary"
                 accessibilityLiveRegion="polite"
               >
                 {improvementSummary}
@@ -240,13 +235,12 @@ export default function EditListingScreen() {
             ) : null}
 
             {brandHint && (
-              <View style={styles.hintCard} testID="edit-listing-buyer-trust-suggestion">
+              <View style={styles.hintCard}>
                 <View style={styles.hintRow}>
                   <Ionicons name="sparkles-outline" size={16} color={theme.colors.textSecondary} />
                   <Text style={styles.hintText}>{brandHint.reason || "Missing brand or model details."}</Text>
                 </View>
                 <Pressable
-                  testID="edit-listing-apply-buyer-trust"
                   accessibilityLabel="Apply buyer trust suggestion"
                   disabled={improving}
                   onPress={() => runImprovement("improve_buyer_trust", "", "suggestion")}
@@ -290,13 +284,12 @@ export default function EditListingScreen() {
               </Text>
             </Pressable>
             {detailsHint && (
-              <View style={styles.hintCard} testID="edit-listing-description-suggestion">
+              <View style={styles.hintCard}>
                 <View style={styles.hintRow}>
                   <Ionicons name="bulb-outline" size={16} color={theme.colors.textSecondary} />
                   <Text style={styles.hintText}>{detailsHint.reason || "Add more details for buyers."}</Text>
                 </View>
                 <Pressable
-                  testID="edit-listing-apply-description-details"
                   accessibilityLabel="Apply description details suggestion"
                   disabled={improving}
                   onPress={() => runImprovement("add_condition_details", "", "suggestion")}

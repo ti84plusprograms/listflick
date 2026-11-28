@@ -117,14 +117,11 @@ export default function HomeScreen() {
   const [pendingOperations, setPendingOperations] = useState<PendingAnalysisOperation[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loaded, setLoaded] = useState(false);
-  // E2E: true only once this focus has fresh data, so Maestro never reads a stale list.
-  const [dataReady, setDataReady] = useState(false);
   const [profileVisible, setProfileVisible] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setDataReady(false);
       Promise.all([
         getAllListings(),
         getPendingAnalysisOperations(),
@@ -135,11 +132,9 @@ export default function HomeScreen() {
         setPendingOperations(pending);
         setProfile(savedProfile);
         setLoaded(true);
-        setDataReady(true);
       });
       return () => {
         active = false;
-        setDataReady(false);
       };
     }, [authProfileDefaults, user?.uid])
   );
@@ -236,10 +231,8 @@ export default function HomeScreen() {
   });
 
   return (
-    <View style={styles.container} testID="home-screen">
-      <ScrollView
-        testID={dataReady ? "home-data-ready" : undefined}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(insets.top, 20) + 16 }]}>
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(insets.top, 20) + 16 }]}>
         {/* Header: wordmark only, plus a one-line summary once there are listings */}
         <View style={styles.titleRow}>
           <Text style={styles.title}>{BRAND_NAME}</Text>
@@ -263,7 +256,7 @@ export default function HomeScreen() {
 
         {!loaded ? null : model.isFirstRun ? (
           <>
-            <Pressable style={styles.firstRunCard} onPress={startListing} accessibilityRole="button" testID="home-new-listing">
+            <Pressable style={styles.firstRunCard} onPress={startListing} accessibilityRole="button">
               <View style={styles.firstRunIcon}>
                 <Ionicons name="camera" size={30} color={theme.colors.accent} />
               </View>
@@ -307,7 +300,7 @@ export default function HomeScreen() {
         ) : (
           <>
             {/* Same place as the first-run card, so the main action never moves */}
-            <Pressable style={styles.newListingButton} onPress={startListing} accessibilityRole="button" testID="home-new-listing">
+            <Pressable style={styles.newListingButton} onPress={startListing} accessibilityRole="button">
               <View style={styles.newListingIcon}>
                 <Ionicons name="camera" size={24} color={theme.colors.accent} />
               </View>

@@ -106,7 +106,6 @@ export function PhotoManager({
 
         <Text
           style={styles.photoCount}
-          testID="selected-photo-count"
           accessibilityLabel={imageUris.length === 1 ? "1 selected photo" : `${imageUris.length} selected photos`}
         >
           {[
